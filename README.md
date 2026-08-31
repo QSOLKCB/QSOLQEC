@@ -2,6 +2,14 @@
 
 Integrate with QSOLKCB/QEC
 
+Donor Repos -
+https://github.com/QSOLKCB/SPECTRAL
+https://github.com/QSOLKCB/SONIFICATION
+https://github.com/QSOLKCB/GLUBALL
+https://github.com/QSOLKCB/RSH
+https://github.com/QSOLKCB/QSOL-GEO-REASON
+https://github.com/QSOLKCB/UFT-ID-3.0
+
 Small AI Model (4b to 12b)
 Quantum Error Correction Repo using QISKIT / AER
 
