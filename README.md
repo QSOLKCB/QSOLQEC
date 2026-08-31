@@ -1,6 +1,7 @@
 # QSOLQEC
 Quantum Error Correction Repo using QISKIT / AER
 
+Fun Uncle, Less Strict than QSOLKCB/QEC
 
 ARCH
 
