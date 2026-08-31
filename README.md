@@ -1,4 +1,5 @@
 # QSOLQEC
+Small AI Model (4b to 12b)
 Quantum Error Correction Repo using QISKIT / AER
 
 Fun Uncle, Less Strict than QSOLKCB/QEC
