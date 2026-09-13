@@ -20,7 +20,7 @@ ARCH
 DECODER <<< ADVANCED QUQUART DECODER
 GLASS BOX AROUND DECODER.
 OBSERVATION LAYER
-
+Using Sound To Correct Errors e.g. [sciencedaily.com/releases/2026/09/260911214245.htm](https://www.sciencedaily.com/releases/2026/09/260911214245.htm)
 4 State ARCH  Decoder > Glass Box > Observation > Control.
 
 Quantum Backend Integration.
