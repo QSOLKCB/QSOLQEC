@@ -25,7 +25,7 @@ Q(3, n) -> qutrits
 Q(4, n) -> ququarts
 ```
 
-The naive dense state requires `d^n` complex amplitudes. That dense representation is intended to become the small-system oracle, not the final execution strategy.
+The naive dense state requires `d^n` complex amplitudes. R1 implements that dense representation as the small-system oracle, not as the scalability strategy.
 
 ## What this repository is
 
@@ -111,19 +111,20 @@ E6  candidate for bridge evaluation
 
 This is not a quality score. It records what evidence exists.
 
-## Rust foundation
-
-PR #1 establishes a deliberately small Rust workspace:
+## Rust workspace
 
 ```text
 crates/
-├── qsolqec-core/         Q(d,n) system specification
+├── qsolqec-core/         Q(d,n), basis ordering, representation-independent geometry
 ├── qsolqec-module-api/   module descriptors and typed capability contract
 ├── qsolqec-runtime/      experiment graph validation
+├── qsolqec-dense/        R1 exact dense qudit oracle
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
-The first implementation does **not** contain a decoder, statevector engine, GPU backend, or sonifier. Those should arrive as modules after the contract is stable enough to test them independently.
+R1 freezes subsystem 0 as the least-significant base-`d` digit and adds machine-checked dense basis fixtures for d=2, d=3, and d=4.
+
+See [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md).
 
 ## Historical inspiration
 
@@ -148,25 +149,21 @@ Import the useful contract or method, not an entire repository by default.
 
 ## Initial roadmap
 
-PR #1 is the modular research foundation.
-
-The next intended rungs are:
-
-1. **Native qudit dense oracle** - exact `Q(d,n)` statevector for small systems.
-2. **Generalized qudit operations** - Weyl X/Z, Fourier, controlled shift, swap.
-3. **Glass Box events** - deterministic observations around module execution.
-4. **First alternate representation** - likely stabilizer/tableau where applicable.
-5. **Representation benchmark harness** - time, memory, fidelity, representation size.
-6. **Noise and QEC modules** - bounded error models and decoders.
-7. **Native ququart vs packed-qubit experiment**.
-8. **Sonification observer module**.
-9. **Compute acceleration modules** - SIMD/GPU/multi-GPU/distributed.
-10. **AI observer experiments**, only after deterministic evidence exists.
+1. **R0 - Modular research foundation** - complete in PR #1.
+2. **R1 - Native qudit dense oracle** - exact `Q(d,n)` small-system reference.
+3. **R2 - Generalized qudit operations** - Weyl X/Z, Fourier, controlled shift, swap.
+4. **R3 - Glass Box events** - deterministic observations around module execution.
+5. **R4 - First alternate representation** - likely stabilizer/tableau where applicable.
+6. **R5 - Representation benchmark harness** - time, memory, fidelity, representation size.
+7. **R6 - Noise and QEC modules** - bounded error models and decoders.
+8. **R7 - Native ququart vs packed-qubit experiment**.
+9. **R8 - Sonification observer module**.
+10. **R9+ - Compute acceleration, experimental representations, and later AI observation**.
 
 See [ROADMAP.md](ROADMAP.md).
 
 ## Current status
 
-**Foundation / PR #1: modular research runtime.**
+**R1: native qudit dense oracle.**
 
-No quantum-advantage, hardware, decoder-performance, or phononic-control claim is made by this repository at this stage.
+The project now has a concrete small-system reference representation, but still makes no quantum-advantage, hardware, decoder-performance, or phononic-control claim.

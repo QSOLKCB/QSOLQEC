@@ -1,13 +1,15 @@
 [package]
-name = "qsolqec-cli"
-version = "0.0.2"
+name = "qsolqec-dense"
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Minimal QSOLQEC experiment-runtime smoke CLI"
+description = "Exact dense qudit reference oracle for QSOLQEC"
 
 [dependencies]
+num-complex = "0.4"
 qsolqec-core = { path = "../qsolqec-core" }
-qsolqec-dense = { path = "../qsolqec-dense" }
 qsolqec-module-api = { path = "../qsolqec-module-api" }
-qsolqec-runtime = { path = "../qsolqec-runtime" }
+
+[dev-dependencies]
+serde_json = "1"

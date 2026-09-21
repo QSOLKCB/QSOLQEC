@@ -3,6 +3,7 @@ members = [
     "crates/qsolqec-core",
     "crates/qsolqec-module-api",
     "crates/qsolqec-runtime",
+    "crates/qsolqec-dense",
     "crates/qsolqec-cli",
 ]
 resolver = "2"
