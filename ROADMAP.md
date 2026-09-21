@@ -63,6 +63,8 @@ The dense engine is a correctness oracle, not the scalability strategy.
 
 ## R3 - Glass Box
 
+**Complete: PR #4**
+
 - Representation-neutral `ObservableState` snapshot contract.
 - Typed pre/post execution events.
 - Representation ID/version and semantic state digest.
@@ -79,12 +81,18 @@ The observer wraps kernels rather than serializing from inside hot loops. Timing
 
 ## R4 - First alternate representation
 
-Initial candidate: stabilizer/tableau where the mathematical domain permits it.
+Initial candidate: exact prime-dimensional stabilizer/tableau.
 
-- Same experiment contract as dense oracle.
-- Explicit exact/approximate/unsupported capability.
-- Oracle comparison on tractable fixtures.
-- Representation-size accounting.
+- Add shared `Exact / Approximate / Unsupported` operation-support vocabulary.
+- Support prime local dimensions, including d=2 and d=3.
+- Deliberately reject composite d=4 in the first stabilizer formalism.
+- Exact support for Weyl X/Z, Fourier, controlled shift, and SWAP.
+- Explicitly reject arbitrary local permutation and local-unitary operations.
+- Use the same Glass Box `ObservableState` contract as dense.
+- Keep dense as a dev-test oracle dependency only.
+- Compare final stabilizer generators against dense oracle states on tractable fixtures.
+- Record O(n^2)-style tableau payload bytes against O(d^n) dense storage.
+- Mark the module E3 only after oracle-comparison tests pass.
 
 ## R5 - Benchmark harness
 

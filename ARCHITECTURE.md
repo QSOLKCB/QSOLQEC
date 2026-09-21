@@ -76,6 +76,29 @@ scalar dense execution
 
 A future sparse, stabilizer, tensor, GPU, or other representation can implement the same operation contract without inheriting dense storage.
 
+R4 adds the first such implementation:
+
+```text
+same Operation stream
+       |
+       +------------------+
+       |                  |
+       v                  v
+DenseState       PrimeStabilizerState
+oracle           candidate
+       |                  |
+       +--------+---------+
+                |
+                v
+        oracle comparison
+```
+
+The prime stabilizer candidate has no production dependency on the dense oracle. Dense appears only in its dev-tests. It declares exact support for the supported Clifford subset and returns `Unsupported` rather than falling back for operations outside that domain.
+
+The first stabilizer arithmetic is prime-dimensional. Composite d=4 is deliberately deferred rather than being treated as though `Z_4` were a field.
+
+See [docs/PRIME_STABILIZER.md](docs/PRIME_STABILIZER.md).
+
 ## 4. Typed scientific pipeline
 
 Modules connect through declared data kinds rather than hidden shared state.
