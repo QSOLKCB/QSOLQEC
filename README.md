@@ -1,17 +1,19 @@
 # QSOLQEC
 
-Integrate with QSOLKCB/QEC
+Integrate with QSOLKCB/QEC ? OR Do it Clean?
 
 Donor Repos -
-https://github.com/QSOLKCB/SPECTRAL
-https://github.com/QSOLKCB/SONIFICATION
-https://github.com/QSOLKCB/GLUBALL
-https://github.com/QSOLKCB/RSH
-https://github.com/QSOLKCB/QSOL-GEO-REASON
-https://github.com/QSOLKCB/UFT-ID-3.0
+https://github.com/QSOLKCB/OPT/
+https://github.com/QSOLKCB/QSOL-MESH/
+https://github.com/QSOLKCB/SPECTRAL/
+https://github.com/QSOLKCB/SONIFICATION/
+https://github.com/QSOLKCB/GLUBALL/
+https://github.com/QSOLKCB/RSH/
+https://github.com/QSOLKCB/QSOL-GEO-REASON/
+https://github.com/QSOLKCB/UFT-ID-3.0/
 
 Small AI Model (4b to 12b)
-Quantum Error Correction Repo using QISKIT / AER
+Quantum Error Correction Repo using QISKIT / AER ?
 
 Fun Uncle, Less Strict than QSOLKCB/QEC
 
@@ -21,9 +23,11 @@ DECODER <<< ADVANCED QUQUART DECODER
 GLASS BOX AROUND DECODER.
 OBSERVATION LAYER
 Using Sound To Correct Errors e.g. [sciencedaily.com/releases/2026/09/260911214245.htm](https://www.sciencedaily.com/releases/2026/09/260911214245.htm)
-4 State ARCH  Decoder > Glass Box > Observation > Control.
+https://thequantuminsider.com/2026/09/18/researchers-observe-first-real-time-quantum-jump-in-sound/
 
-Quantum Backend Integration.
+Ququart 4-State ARCH  Decoder > Glass Box > Observation > Control.
+
+Quantum Backend Integration. ?
 
 No claims of "Quantum Advantage", Unless it's already reached.
 
