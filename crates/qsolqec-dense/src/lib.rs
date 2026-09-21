@@ -9,6 +9,10 @@ use std::f64::consts::TAU;
 
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
+use qsolqec_glassbox::{
+    ApproximationDeclaration, ObservableState, RepresentationIdentity, SemanticHasher,
+    StateSnapshot,
+};
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
 use qsolqec_ops::{LocalUnitary, Operation, OperationValidationError};
 
@@ -323,6 +327,33 @@ impl DenseState {
         }
 
         Ok(())
+    }
+}
+
+impl ObservableState for DenseState {
+    fn observation_snapshot(&self) -> StateSnapshot {
+        let mut hasher = SemanticHasher::new();
+        hasher.update(b"qsolqec.dense-state.v1");
+        hasher.update(&(self.spec.dimension() as u128).to_be_bytes());
+        hasher.update(&(self.spec.subsystems() as u128).to_be_bytes());
+        hasher.update(&[1]); // SubsystemZeroLeastSignificant
+
+        for amplitude in &self.amplitudes {
+            hasher.update(&amplitude.re.to_bits().to_be_bytes());
+            hasher.update(&amplitude.im.to_bits().to_be_bytes());
+        }
+
+        StateSnapshot {
+            representation: RepresentationIdentity {
+                id: "dense-reference".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+            },
+            system: self.spec,
+            approximation: ApproximationDeclaration::Exact,
+            state_digest: hasher.finalize_hex(),
+            norm_squared: self.norm_squared(),
+            logical_bytes: self.amplitudes.len() as u128 * std::mem::size_of::<Complex64>() as u128,
+        }
     }
 }
 
@@ -811,6 +842,21 @@ mod tests {
         let error = LocalUnitary::new(0, 2, vec![Complex64::new(1.0, 0.0); 4]).unwrap_err();
 
         assert_eq!(error, LocalUnitaryError::NotUnitary);
+    }
+
+    #[test]
+    fn observation_snapshot_is_stable_and_exact() {
+        let state = DenseState::basis(SystemSpec::new(4, 2).unwrap(), 11).unwrap();
+
+        let first = state.observation_snapshot();
+        let second = state.observation_snapshot();
+
+        assert_eq!(first, second);
+        assert_eq!(first.representation.id, "dense-reference");
+        assert_eq!(first.approximation, ApproximationDeclaration::Exact);
+        assert_eq!(first.logical_bytes, 16 * 16);
+        assert_eq!(first.norm_squared, 1.0);
+        assert!(first.state_digest.len() == 64);
     }
 
     #[test]

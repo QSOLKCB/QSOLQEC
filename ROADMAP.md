@@ -48,6 +48,8 @@ The dense engine is a correctness oracle, not the scalability strategy.
 
 ## R2 - Generalized qudit operations
 
+**Complete: PR #3**
+
 - Representation-independent operation definitions.
 - Weyl `X_d`.
 - Weyl `Z_d`.
@@ -61,14 +63,19 @@ The dense engine is a correctness oracle, not the scalability strategy.
 
 ## R3 - Glass Box
 
-- Pre/post execution events.
-- Representation identity.
-- Numerical contract.
-- Timing and memory observations.
-- Approximation declaration.
-- Artifact identity.
+- Representation-neutral `ObservableState` snapshot contract.
+- Typed pre/post execution events.
+- Representation ID/version and semantic state digest.
+- Explicit IEEE-754 numerical comparison contract.
+- Exact/approximate representation declaration.
+- Wall-clock timing observation.
+- Logical representation-byte observation.
+- Stable SHA-256 operation identity.
+- Stable SHA-256 receipt artifact identity.
+- Artifact identity excludes wall-clock timing, event sequence, and diagnostic text.
+- Failed execution remains observable rather than being hidden or retried.
 
-The observer wraps kernels rather than serializing from inside hot loops.
+The observer wraps kernels rather than serializing from inside hot loops. Timing is an observation, not a benchmark claim.
 
 ## R4 - First alternate representation
 

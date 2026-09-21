@@ -55,6 +55,77 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::WeylX { .. } => "weyl-x",
+            Self::WeylZ { .. } => "weyl-z",
+            Self::Fourier { .. } => "fourier",
+            Self::ControlledShift { .. } => "controlled-shift",
+            Self::Swap { .. } => "swap",
+            Self::LocalPermutation { .. } => "local-permutation",
+            Self::LocalUnitary(_) => "local-unitary",
+        }
+    }
+
+    /// Stable, representation-independent operation encoding for observation
+    /// and artifact identity.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        let mut output = Vec::new();
+        push_bytes(&mut output, b"qsolqec.operation.v1");
+
+        match self {
+            Self::WeylX { target, shift } => {
+                output.push(1);
+                push_usize(&mut output, *target);
+                push_usize(&mut output, *shift);
+            }
+            Self::WeylZ { target, power } => {
+                output.push(2);
+                push_usize(&mut output, *target);
+                push_usize(&mut output, *power);
+            }
+            Self::Fourier { target } => {
+                output.push(3);
+                push_usize(&mut output, *target);
+            }
+            Self::ControlledShift {
+                control,
+                target,
+                shift,
+            } => {
+                output.push(4);
+                push_usize(&mut output, *control);
+                push_usize(&mut output, *target);
+                push_usize(&mut output, *shift);
+            }
+            Self::Swap { a, b } => {
+                output.push(5);
+                push_usize(&mut output, *a);
+                push_usize(&mut output, *b);
+            }
+            Self::LocalPermutation { target, map } => {
+                output.push(6);
+                push_usize(&mut output, *target);
+                push_usize(&mut output, map.len());
+                for value in map {
+                    push_usize(&mut output, *value);
+                }
+            }
+            Self::LocalUnitary(unitary) => {
+                output.push(7);
+                push_usize(&mut output, unitary.target());
+                push_usize(&mut output, unitary.dimension());
+                push_usize(&mut output, unitary.matrix().len());
+                for value in unitary.matrix() {
+                    output.extend_from_slice(&value.re.to_bits().to_be_bytes());
+                    output.extend_from_slice(&value.im.to_bits().to_be_bytes());
+                }
+            }
+        }
+
+        output
+    }
+
     /// Validate an operation against a concrete Q(d,n) system.
     pub fn validate_for(&self, spec: SystemSpec) -> Result<(), OperationValidationError> {
         match self {
@@ -101,6 +172,15 @@ impl Operation {
             }
         }
     }
+}
+
+fn push_usize(output: &mut Vec<u8>, value: usize) {
+    output.extend_from_slice(&(value as u128).to_be_bytes());
+}
+
+fn push_bytes(output: &mut Vec<u8>, bytes: &[u8]) {
+    output.extend_from_slice(&(bytes.len() as u128).to_be_bytes());
+    output.extend_from_slice(bytes);
 }
 
 /// A validated row-major d x d unitary acting on one local subsystem.
@@ -327,6 +407,53 @@ impl std::error::Error for LocalUnitaryError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_encoding_changes_with_operation_parameters() {
+        let first = Operation::WeylX {
+            target: 0,
+            shift: 1,
+        };
+        let second = Operation::WeylX {
+            target: 0,
+            shift: 2,
+        };
+
+        assert_eq!(first.canonical_bytes(), first.canonical_bytes());
+        assert_ne!(first.canonical_bytes(), second.canonical_bytes());
+        assert_eq!(first.kind(), "weyl-x");
+    }
+
+    #[test]
+    fn local_unitary_encoding_includes_matrix_bits() {
+        let identity = LocalUnitary::new(
+            0,
+            2,
+            vec![
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(1.0, 0.0),
+            ],
+        )
+        .unwrap();
+        let phase = LocalUnitary::new(
+            0,
+            2,
+            vec![
+                Complex64::new(1.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(0.0, 0.0),
+                Complex64::new(-1.0, 0.0),
+            ],
+        )
+        .unwrap();
+
+        assert_ne!(
+            Operation::LocalUnitary(identity).canonical_bytes(),
+            Operation::LocalUnitary(phase).canonical_bytes()
+        );
+    }
 
     #[test]
     fn accepts_hadamard_as_local_unitary() {

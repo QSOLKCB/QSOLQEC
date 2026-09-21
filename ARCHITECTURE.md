@@ -213,6 +213,8 @@ The dense oracle uses serial fixed-order `f64` accumulation for its norm referen
 
 R2 validates user-supplied local unitary definitions against `U†U = I` using a fixed construction tolerance of `1e-12`. That construction check is distinct from later experiment-result comparison contracts.
 
+R3 makes the execution comparison rule explicit in each Glass Box receipt. The first concrete contracts are exact IEEE-754 bit comparison and fixed absolute-amplitude tolerance. Normalization remains observe-only.
+
 An optimized CPU/GPU backend must not be declared incorrect merely because floating-point reduction order changes last-bit results, but neither may it choose its own acceptance rule after seeing the output.
 
 ## 9. Compute backends
@@ -245,20 +247,33 @@ with bounded comparison against the reference.
 
 ## 10. Observation and sonification
 
-The Glass Box is an observer layer around execution.
+R3 makes the Glass Box executable while preserving the observer boundary:
 
-It may record:
+```text
+ObservableState
+      |
+      v
+BEFORE snapshot
+      |
+      v
+existing operation kernel
+      |
+      v
+AFTER snapshot
+      |
+      v
+observation receipt
+```
 
-- operation identity;
-- representation identity;
-- norm/fidelity metrics;
-- representation size;
-- timing;
-- memory;
-- approximation declaration;
-- decoder output;
-- noise event;
-- analysis result.
+Each snapshot records representation ID/version, `Q(d,n)`, exact/approximate declaration, semantic state digest, norm squared, and logical representation bytes.
+
+Each receipt records canonical operation identity, a numerical contract, pre/post events, wall-clock elapsed time, execution outcome, and a SHA-256 artifact identity.
+
+Artifact identity hashes deterministic semantic content only. It deliberately excludes wall-clock timing, event sequence numbers, and human diagnostic strings.
+
+The Glass Box records failed execution as failure evidence; it does not normalize, repair, retry, or promote the result.
+
+See [docs/GLASS_BOX.md](docs/GLASS_BOX.md).
 
 Sonification is initially an observer:
 

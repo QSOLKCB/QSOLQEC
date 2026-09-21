@@ -4,6 +4,7 @@ members = [
     "crates/qsolqec-module-api",
     "crates/qsolqec-runtime",
     "crates/qsolqec-ops",
+    "crates/qsolqec-glassbox",
     "crates/qsolqec-dense",
     "crates/qsolqec-cli",
 ]
