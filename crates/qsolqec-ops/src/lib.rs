@@ -58,9 +58,9 @@ impl Operation {
     /// Validate an operation against a concrete Q(d,n) system.
     pub fn validate_for(&self, spec: SystemSpec) -> Result<(), OperationValidationError> {
         match self {
-            Self::WeylX { target, .. }
-            | Self::WeylZ { target, .. }
-            | Self::Fourier { target } => validate_target(spec, *target),
+            Self::WeylX { target, .. } | Self::WeylZ { target, .. } | Self::Fourier { target } => {
+                validate_target(spec, *target)
+            }
             Self::ControlledShift {
                 control, target, ..
             } => {
@@ -172,10 +172,7 @@ fn validate_target(spec: SystemSpec, target: usize) -> Result<(), OperationValid
     Ok(())
 }
 
-fn validate_permutation(
-    dimension: usize,
-    map: &[usize],
-) -> Result<(), OperationValidationError> {
+fn validate_permutation(dimension: usize, map: &[usize]) -> Result<(), OperationValidationError> {
     if map.len() != dimension {
         return Err(OperationValidationError::PermutationLengthMismatch {
             expected: dimension,
@@ -295,19 +292,10 @@ impl std::error::Error for OperationValidationError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalUnitaryError {
-    DimensionTooSmall {
-        dimension: usize,
-    },
-    MatrixSizeOverflow {
-        dimension: usize,
-    },
-    MatrixLengthMismatch {
-        expected: usize,
-        actual: usize,
-    },
-    NonFiniteElement {
-        index: usize,
-    },
+    DimensionTooSmall { dimension: usize },
+    MatrixSizeOverflow { dimension: usize },
+    MatrixLengthMismatch { expected: usize, actual: usize },
+    NonFiniteElement { index: usize },
     NotUnitary,
 }
 
@@ -315,7 +303,10 @@ impl fmt::Display for LocalUnitaryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DimensionTooSmall { dimension } => {
-                write!(f, "local unitary dimension must be at least 2, got {dimension}")
+                write!(
+                    f,
+                    "local unitary dimension must be at least 2, got {dimension}"
+                )
             }
             Self::MatrixSizeOverflow { dimension } => {
                 write!(f, "matrix size overflows for local dimension {dimension}")
