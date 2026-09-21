@@ -264,13 +264,13 @@ fn is_prime(value: usize) -> bool {
     if value == 2 {
         return true;
     }
-    if value % 2 == 0 {
+    if value.is_multiple_of(2) {
         return false;
     }
 
     let mut divisor = 3usize;
     while divisor <= value / divisor {
-        if value % divisor == 0 {
+        if value.is_multiple_of(divisor) {
             return false;
         }
         divisor += 2;
@@ -416,13 +416,13 @@ mod tests {
             let mut digits = spec.basis_digits(source_index).unwrap();
             let mut exponent = generator.phase;
 
-            for subsystem in 0..spec.subsystems() {
+            for (subsystem, digit) in digits.iter_mut().enumerate() {
                 exponent = add_mod(
                     exponent,
-                    mul_mod(generator.z[subsystem], digits[subsystem], d),
+                    mul_mod(generator.z[subsystem], *digit, d),
                     d,
                 );
-                digits[subsystem] = add_mod(digits[subsystem], generator.x[subsystem], d);
+                *digit = add_mod(*digit, generator.x[subsystem], d);
             }
 
             let destination = spec.basis_index(&digits).unwrap();
