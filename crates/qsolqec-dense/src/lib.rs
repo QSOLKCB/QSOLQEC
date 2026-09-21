@@ -247,8 +247,7 @@ impl DenseState {
             let target_digit = (index / target_stride) % dimension;
             let delta = mul_mod(control_digit, reduced_shift, dimension);
             let new_target = (target_digit + delta) % dimension;
-            let destination =
-                replace_digit(index, target_digit, new_target, target_stride)?;
+            let destination = replace_digit(index, target_digit, new_target, target_stride)?;
             output[destination] = amplitude;
         }
 
@@ -293,10 +292,7 @@ impl DenseState {
         Ok(())
     }
 
-    fn apply_local_unitary(
-        &mut self,
-        unitary: &LocalUnitary,
-    ) -> Result<(), DenseOperationError> {
+    fn apply_local_unitary(&mut self, unitary: &LocalUnitary) -> Result<(), DenseOperationError> {
         let dimension = self.spec.dimension();
         let stride = subsystem_stride(self.spec, unitary.target())?;
         let block = stride
@@ -508,12 +504,7 @@ mod tests {
         assert_eq!(left.spec(), right.spec());
         assert_eq!(left.amplitudes().len(), right.amplitudes().len());
 
-        for (index, (lhs, rhs)) in left
-            .amplitudes()
-            .iter()
-            .zip(right.amplitudes())
-            .enumerate()
-        {
+        for (index, (lhs, rhs)) in left.amplitudes().iter().zip(right.amplitudes()).enumerate() {
             assert!(
                 (*lhs - *rhs).norm() <= EPSILON,
                 "amplitude {index} differs: {lhs:?} vs {rhs:?}"
@@ -757,9 +748,7 @@ mod tests {
         assert!((probabilities[0] - 0.5).abs() <= EPSILON);
         assert!((probabilities[1] - 0.5).abs() <= EPSILON);
 
-        state
-            .apply_operation(&Operation::LocalUnitary(h))
-            .unwrap();
+        state.apply_operation(&Operation::LocalUnitary(h)).unwrap();
         assert_states_close(&state, &original);
     }
 
@@ -819,12 +808,7 @@ mod tests {
 
     #[test]
     fn rejects_non_unitary_fallback_before_execution() {
-        let error = LocalUnitary::new(
-            0,
-            2,
-            vec![Complex64::new(1.0, 0.0); 4],
-        )
-        .unwrap_err();
+        let error = LocalUnitary::new(0, 2, vec![Complex64::new(1.0, 0.0); 4]).unwrap_err();
 
         assert_eq!(error, LocalUnitaryError::NotUnitary);
     }
