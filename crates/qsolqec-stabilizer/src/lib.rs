@@ -52,10 +52,11 @@ impl PrimeStabilizerState {
             });
         }
 
-        let mut generators = Vec::with_capacity(spec.subsystems());
+        let mut generators =
+            try_reserve_vector::<PauliGenerator>(spec.subsystems(), "generator-table")?;
         for stabilized_subsystem in 0..spec.subsystems() {
-            let x = vec![0; spec.subsystems()];
-            let mut z = vec![0; spec.subsystems()];
+            let x = try_zeroed_usize_vector(spec.subsystems(), "generator-x")?;
+            let mut z = try_zeroed_usize_vector(spec.subsystems(), "generator-z")?;
             z[stabilized_subsystem] = 1;
 
             generators.push(PauliGenerator { x, z, phase: 0 });
@@ -257,6 +258,30 @@ fn hash_usize(hasher: &mut SemanticHasher, value: usize) {
     hasher.update(&(value as u128).to_be_bytes());
 }
 
+fn try_reserve_vector<T>(
+    elements: usize,
+    kind: &'static str,
+) -> Result<Vec<T>, StabilizerError> {
+    elements
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or(StabilizerError::AllocationSizeOverflow { kind, elements })?;
+
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(elements)
+        .map_err(|_| StabilizerError::AllocationFailed { kind, elements })?;
+    Ok(values)
+}
+
+fn try_zeroed_usize_vector(
+    elements: usize,
+    kind: &'static str,
+) -> Result<Vec<usize>, StabilizerError> {
+    let mut values = try_reserve_vector::<usize>(elements, kind)?;
+    values.resize(elements, 0);
+    Ok(values)
+}
+
 fn is_prime(value: usize) -> bool {
     if value < 2 {
         return false;
@@ -351,6 +376,14 @@ pub enum StabilizerError {
         digit: usize,
         dimension: usize,
     },
+    AllocationSizeOverflow {
+        kind: &'static str,
+        elements: usize,
+    },
+    AllocationFailed {
+        kind: &'static str,
+        elements: usize,
+    },
     InvalidOperation(OperationValidationError),
     UnsupportedOperation {
         kind: &'static str,
@@ -376,6 +409,13 @@ impl fmt::Display for StabilizerError {
                 f,
                 "basis digit {digit} at subsystem {target} is outside 0..{dimension}"
             ),
+            Self::AllocationSizeOverflow { kind, elements } => write!(
+                f,
+                "{kind} allocation size overflows for {elements} elements"
+            ),
+            Self::AllocationFailed { kind, elements } => {
+                write!(f, "failed to allocate {elements} elements for {kind}")
+            }
             Self::InvalidOperation(source) => write!(f, "invalid operation: {source}"),
             Self::UnsupportedOperation { kind } => {
                 write!(f, "operation {kind} is unsupported by prime stabilizer")
@@ -446,6 +486,30 @@ mod tests {
         for generator in stabilizer.generators() {
             assert_generator_stabilizes_dense(generator, &dense);
         }
+    }
+
+    #[test]
+    fn oversized_subsystem_count_fails_without_panicking() {
+        let spec = SystemSpec::new(2, usize::MAX).unwrap();
+
+        assert_eq!(
+            PrimeStabilizerState::zero(spec),
+            Err(StabilizerError::AllocationSizeOverflow {
+                kind: "generator-table",
+                elements: usize::MAX
+            })
+        );
+    }
+
+    #[test]
+    fn zeroed_generator_lane_checks_size_before_allocation() {
+        assert_eq!(
+            try_zeroed_usize_vector(usize::MAX, "test-lane"),
+            Err(StabilizerError::AllocationSizeOverflow {
+                kind: "test-lane",
+                elements: usize::MAX
+            })
+        );
     }
 
     #[test]
