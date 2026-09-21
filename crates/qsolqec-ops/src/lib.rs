@@ -14,6 +14,17 @@ use qsolqec_core::SystemSpec;
 /// This is not a general experiment comparison tolerance.
 pub const LOCAL_UNITARY_TOLERANCE: f64 = 1.0e-12;
 
+/// Representation-level support for an operation.
+///
+/// Approximation details belong in the representation's validated Glass Box
+/// declaration; this enum only records the support class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationSupport {
+    Exact,
+    Approximate,
+    Unsupported,
+}
+
 /// Generalized qudit operations supported by R2.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operation {

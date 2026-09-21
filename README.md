@@ -119,18 +119,20 @@ crates/
 ├── qsolqec-module-api/   module descriptors and typed capability contract
 ├── qsolqec-runtime/      experiment graph validation
 ├── qsolqec-ops/          generalized qudit operation semantics
-├── qsolqec-glassbox/     R3 observation events and artifact identity
+├── qsolqec-glassbox/     observation events and artifact identity
 ├── qsolqec-dense/        dense oracle + scalar operation execution
+├── qsolqec-stabilizer/   R4 exact prime-d stabilizer/tableau candidate
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
-R3 wraps operation execution in a representation-neutral Glass Box with typed pre/post events, numerical contracts, approximation declarations, timing/memory observations, and stable semantic artifact identity.
+R4 adds the first genuinely non-dense representation: an exact prime-dimensional stabilizer/tableau candidate for supported Clifford operations. Qubits and qutrits are supported; composite d=4 is deliberately unsupported in this first stabilizer formalism.
 
 See:
 
 - [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md)
 - [docs/QUDIT_OPERATIONS.md](docs/QUDIT_OPERATIONS.md)
 - [docs/GLASS_BOX.md](docs/GLASS_BOX.md)
+- [docs/PRIME_STABILIZER.md](docs/PRIME_STABILIZER.md)
 
 ## Historical inspiration
 
@@ -158,8 +160,8 @@ Import the useful contract or method, not an entire repository by default.
 1. **R0 - Modular research foundation** - complete in PR #1.
 2. **R1 - Native qudit dense oracle** - complete in PR #2.
 3. **R2 - Generalized qudit operations** - complete in PR #3.
-4. **R3 - Glass Box events** - pre/post observation, numerical contracts, timing/memory, approximation, artifact identity.
-5. **R4 - First alternate representation** - likely stabilizer/tableau where applicable.
+4. **R3 - Glass Box events** - complete in PR #4.
+5. **R4 - First alternate representation** - prime-d stabilizer/tableau with explicit support and dense-oracle comparison.
 6. **R5 - Representation benchmark harness** - time, memory, fidelity, representation size.
 7. **R6 - Noise and QEC modules** - bounded error models and decoders.
 8. **R7 - Native ququart vs packed-qubit experiment**.
@@ -170,6 +172,6 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Current status
 
-**R3: Glass Box observation boundary.**
+**R4: first alternate representation.**
 
-The project now records deterministic semantic identities around operation execution while keeping timing and other runtime observations separate from correctness authority. It still makes no quantum-advantage, hardware, decoder-performance, or phononic-control claim.
+The project now has two genuinely different exact classical representations for supported workloads: the general dense oracle and a compact prime-dimensional stabilizer tableau. This is the first concrete representation-compression experiment, not a general quantum-advantage claim.
