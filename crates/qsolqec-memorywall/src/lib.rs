@@ -150,14 +150,22 @@ pub enum OracleAgreement {
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum RunOutcome {
     Success,
-    Unsupported { reason: String },
-    SizeOverflow { reason: String },
+    Unsupported {
+        reason: String,
+    },
+    SizeOverflow {
+        reason: String,
+    },
     LogicalBudgetExceeded {
         required_bytes: u64,
         limit_bytes: u64,
     },
-    AllocationFailed { reason: String },
-    ExecutionFailed { reason: String },
+    AllocationFailed {
+        reason: String,
+    },
+    ExecutionFailed {
+        reason: String,
+    },
 }
 
 impl RunOutcome {
@@ -235,7 +243,9 @@ pub fn probe_host() -> HostInfo {
         schema: HOST_SCHEMA.into(),
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
-        hostname: std::env::var("HOSTNAME").ok().filter(|value| !value.is_empty()),
+        hostname: std::env::var("HOSTNAME")
+            .ok()
+            .filter(|value| !value.is_empty()),
         cpu_model: linux_cpu_model(),
         logical_cpu_count: std::thread::available_parallelism()
             .ok()
@@ -502,7 +512,10 @@ fn run_stabilizer(
                     peak_before_bytes,
                     construction_ns,
                     RunOutcome::Unsupported {
-                        reason: format!("operation {} has support class {other:?}", operation.kind()),
+                        reason: format!(
+                            "operation {} has support class {other:?}",
+                            operation.kind()
+                        ),
                     },
                 );
             }
@@ -570,10 +583,14 @@ fn run_stabilizer(
                 Ok(()) => {
                     let tolerance = 1.0e-10;
                     match stabilizer_max_error(&state, &dense) {
-                        Ok(max_error) if max_error <= tolerance => {
-                            OracleAgreement::Matched { tolerance, max_error }
-                        }
-                        Ok(max_error) => OracleAgreement::Mismatch { tolerance, max_error },
+                        Ok(max_error) if max_error <= tolerance => OracleAgreement::Matched {
+                            tolerance,
+                            max_error,
+                        },
+                        Ok(max_error) => OracleAgreement::Mismatch {
+                            tolerance,
+                            max_error,
+                        },
                         Err(error) => OracleAgreement::Unavailable {
                             reason: error.to_string(),
                         },
@@ -695,11 +712,10 @@ fn empty_timings() -> TimingMeasurements {
 
 fn classify_stabilizer_error(error: StabilizerError) -> RunOutcome {
     match error {
-        StabilizerError::NonPrimeDimension { .. } | StabilizerError::UnsupportedOperation { .. } => {
-            RunOutcome::Unsupported {
-                reason: error.to_string(),
-            }
-        }
+        StabilizerError::NonPrimeDimension { .. }
+        | StabilizerError::UnsupportedOperation { .. } => RunOutcome::Unsupported {
+            reason: error.to_string(),
+        },
         StabilizerError::AllocationSizeOverflow { .. }
         | StabilizerError::AllocationFailed { .. } => RunOutcome::AllocationFailed {
             reason: error.to_string(),
@@ -715,9 +731,7 @@ pub fn workload_operations(
     rounds: usize,
 ) -> Result<Vec<Operation>, HarnessError> {
     if rounds == 0 {
-        return Err(HarnessError::Workload(
-            "rounds must be at least 1".into(),
-        ));
+        return Err(HarnessError::Workload("rounds must be at least 1".into()));
     }
 
     let per_round = if system.subsystems() == 1 { 3 } else { 5 };
@@ -735,10 +749,7 @@ pub fn workload_operations(
         operations.push(Operation::Fourier { target });
 
         if system.subsystems() == 1 {
-            operations.push(Operation::WeylZ {
-                target,
-                power: 1,
-            });
+            operations.push(Operation::WeylZ { target, power: 1 });
             operations.push(Operation::WeylX { target, shift: 1 });
             continue;
         }
@@ -857,19 +868,14 @@ fn stabilizer_max_error(
                 let digit = remainder % d;
                 remainder /= d;
 
-                exponent = add_mod(
-                    exponent,
-                    mul_mod(generator.z()[subsystem], digit, d),
-                    d,
-                );
+                exponent = add_mod(exponent, mul_mod(generator.z()[subsystem], digit, d), d);
                 let destination_digit = add_mod(digit, generator.x()[subsystem], d);
-                destination = destination
-                    .checked_add(
-                        destination_digit
-                            .checked_mul(place)
-                            .ok_or_else(|| HarnessError::Workload("oracle index overflow".into()))?,
-                    )
-                    .ok_or_else(|| HarnessError::Workload("oracle index overflow".into()))?;
+                destination =
+                    destination
+                        .checked_add(destination_digit.checked_mul(place).ok_or_else(|| {
+                            HarnessError::Workload("oracle index overflow".into())
+                        })?)
+                        .ok_or_else(|| HarnessError::Workload("oracle index overflow".into()))?;
 
                 if subsystem + 1 < n {
                     place = place
@@ -960,7 +966,10 @@ fn probe_nvidia_gpus() -> Vec<GpuInfo> {
             let mut fields = line.split(',').map(str::trim);
             let name = fields.next()?.to_owned();
             let memory_mib = fields.next()?.parse::<u64>().ok();
-            let driver = fields.next().map(str::to_owned).filter(|value| !value.is_empty());
+            let driver = fields
+                .next()
+                .map(str::to_owned)
+                .filter(|value| !value.is_empty());
             Some(GpuInfo {
                 name,
                 memory_total_bytes: memory_mib.and_then(|mib| mib.checked_mul(1024 * 1024)),
@@ -1020,7 +1029,10 @@ mod tests {
         let receipt = run_experiment(&spec).unwrap();
 
         assert!(receipt.body.outcome.is_success());
-        assert_eq!(receipt.body.oracle_agreement, OracleAgreement::SelfReference);
+        assert_eq!(
+            receipt.body.oracle_agreement,
+            OracleAgreement::SelfReference
+        );
         assert_eq!(receipt.body.workload.operation_count, 10);
         assert!(receipt.body.final_state_digest.is_some());
         assert_eq!(receipt.body.memory.logical_bytes, Some(8 * 16));
