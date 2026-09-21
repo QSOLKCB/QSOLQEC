@@ -22,10 +22,27 @@ pub struct RepresentationIdentity {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApproximationDeclaration {
     Exact,
-    Approximate {
-        method: String,
-        declared_absolute_error: Option<f64>,
-    },
+    Approximate(ApproximationSpec),
+}
+
+/// Validated approximation metadata.
+///
+/// Fields are intentionally private so external representations cannot forge an
+/// unchecked approximation declaration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproximationSpec {
+    method: String,
+    declared_absolute_error: Option<f64>,
+}
+
+impl ApproximationSpec {
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub const fn declared_absolute_error(&self) -> Option<f64> {
+        self.declared_absolute_error
+    }
 }
 
 impl ApproximationDeclaration {
@@ -37,16 +54,19 @@ impl ApproximationDeclaration {
         if method.trim().is_empty() {
             return Err(ApproximationError::EmptyMethod);
         }
-        if let Some(bound) = declared_absolute_error {
-            if !bound.is_finite() || bound < 0.0 {
-                return Err(ApproximationError::InvalidAbsoluteError { bound });
-            }
-        }
 
-        Ok(Self::Approximate {
+        let declared_absolute_error = match declared_absolute_error {
+            Some(bound) => Some(canonical_nonnegative(
+                bound,
+                |bound| ApproximationError::InvalidAbsoluteError { bound },
+            )?),
+            None => None,
+        };
+
+        Ok(Self::Approximate(ApproximationSpec {
             method,
             declared_absolute_error,
-        })
+        }))
     }
 }
 
@@ -83,9 +103,9 @@ impl NumericalContract {
     }
 
     pub fn absolute_amplitude_f64(tolerance: f64) -> Result<Self, NumericalContractError> {
-        if !tolerance.is_finite() || tolerance < 0.0 {
-            return Err(NumericalContractError::InvalidTolerance { tolerance });
-        }
+        let tolerance = canonical_nonnegative(tolerance, |tolerance| {
+            NumericalContractError::InvalidTolerance { tolerance }
+        })?;
 
         Ok(Self {
             scalar: ScalarModel::Ieee754F64,
@@ -273,11 +293,44 @@ pub fn module_descriptor() -> ModuleDescriptor {
     }
 }
 
-/// Stable SHA-256 helper used by representations for semantic state digests.
+/// Incremental SHA-256 helper for semantic state digests.
+pub struct SemanticHasher {
+    inner: Sha256,
+}
+
+impl SemanticHasher {
+    pub fn new() -> Self {
+        Self {
+            inner: Sha256::new(),
+        }
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.inner.update(bytes);
+    }
+
+    pub fn finalize_hex(self) -> String {
+        digest_to_hex(self.inner.finalize())
+    }
+}
+
+impl Default for SemanticHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Stable SHA-256 helper used for small canonical payloads.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(digest.len() * 2);
-    for byte in digest {
+    let mut hasher = SemanticHasher::new();
+    hasher.update(bytes);
+    hasher.finalize_hex()
+}
+
+fn digest_to_hex(digest: impl AsRef<[u8]>) -> String {
+    let bytes = digest.as_ref();
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
         use fmt::Write as _;
         write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
     }
@@ -335,13 +388,10 @@ fn append_snapshot(output: &mut Vec<u8>, snapshot: &StateSnapshot) {
 fn append_approximation(output: &mut Vec<u8>, approximation: &ApproximationDeclaration) {
     match approximation {
         ApproximationDeclaration::Exact => output.push(1),
-        ApproximationDeclaration::Approximate {
-            method,
-            declared_absolute_error,
-        } => {
+        ApproximationDeclaration::Approximate(spec) => {
             output.push(2);
-            push_bytes(output, method.as_bytes());
-            match declared_absolute_error {
+            push_bytes(output, spec.method.as_bytes());
+            match spec.declared_absolute_error {
                 Some(bound) => {
                     output.push(1);
                     output.extend_from_slice(&bound.to_bits().to_be_bytes());
@@ -350,6 +400,14 @@ fn append_approximation(output: &mut Vec<u8>, approximation: &ApproximationDecla
             }
         }
     }
+}
+
+fn canonical_nonnegative<E>(value: f64, error: impl FnOnce(f64) -> E) -> Result<f64, E> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(error(value));
+    }
+
+    Ok(if value == 0.0 { 0.0 } else { value })
 }
 
 fn push_bytes(output: &mut Vec<u8>, bytes: &[u8]) {
@@ -464,6 +522,20 @@ mod tests {
     }
 
     #[test]
+    fn numerical_contract_canonicalizes_signed_zero() {
+        let positive = NumericalContract::absolute_amplitude_f64(0.0).unwrap();
+        let negative = NumericalContract::absolute_amplitude_f64(-0.0).unwrap();
+
+        assert_eq!(positive, negative);
+        match negative.comparison() {
+            ComparisonRule::AbsoluteAmplitudeTolerance { tolerance } => {
+                assert_eq!(tolerance.to_bits(), 0.0f64.to_bits());
+            }
+            ComparisonRule::ExactBits => panic!("expected tolerance contract"),
+        }
+    }
+
+    #[test]
     fn emits_before_and_after_events() {
         let contract = NumericalContract::absolute_amplitude_f64(1.0e-12).unwrap();
         let mut glassbox = GlassBox::new(contract);
@@ -495,6 +567,38 @@ mod tests {
             observed.receipt.before.snapshot.state_digest,
             observed.receipt.after.snapshot.state_digest
         );
+    }
+
+    #[test]
+    fn artifact_identity_canonicalizes_signed_zero_tolerance() {
+        let operation = Operation::WeylX {
+            target: 0,
+            shift: 1,
+        };
+
+        let mut positive_box =
+            GlassBox::new(NumericalContract::absolute_amplitude_f64(0.0).unwrap());
+        let mut positive_state = DummyState::new();
+        let positive = positive_box
+            .observe_operation(&mut positive_state, &operation, |state| {
+                state.value = 1;
+                Ok::<(), Infallible>(())
+            })
+            .unwrap()
+            .receipt;
+
+        let mut negative_box =
+            GlassBox::new(NumericalContract::absolute_amplitude_f64(-0.0).unwrap());
+        let mut negative_state = DummyState::new();
+        let negative = negative_box
+            .observe_operation(&mut negative_state, &operation, |state| {
+                state.value = 1;
+                Ok::<(), Infallible>(())
+            })
+            .unwrap()
+            .receipt;
+
+        assert_eq!(positive.artifact_id, negative.artifact_id);
     }
 
     #[test]
@@ -565,13 +669,31 @@ mod tests {
     fn approximation_constructor_rejects_bad_declarations() {
         assert!(ApproximationDeclaration::approximate("", None).is_err());
         assert!(ApproximationDeclaration::approximate("mps", Some(-0.1)).is_err());
-        assert_eq!(
-            ApproximationDeclaration::approximate("mps", Some(1.0e-6)).unwrap(),
-            ApproximationDeclaration::Approximate {
-                method: "mps".into(),
-                declared_absolute_error: Some(1.0e-6)
+
+        let declaration =
+            ApproximationDeclaration::approximate("mps", Some(1.0e-6)).unwrap();
+        match declaration {
+            ApproximationDeclaration::Approximate(spec) => {
+                assert_eq!(spec.method(), "mps");
+                assert_eq!(spec.declared_absolute_error(), Some(1.0e-6));
             }
-        );
+            ApproximationDeclaration::Exact => panic!("expected approximation"),
+        }
+    }
+
+    #[test]
+    fn approximation_error_bound_canonicalizes_signed_zero() {
+        let declaration =
+            ApproximationDeclaration::approximate("mps", Some(-0.0)).unwrap();
+        match declaration {
+            ApproximationDeclaration::Approximate(spec) => {
+                assert_eq!(
+                    spec.declared_absolute_error().unwrap().to_bits(),
+                    0.0f64.to_bits()
+                );
+            }
+            ApproximationDeclaration::Exact => panic!("expected approximation"),
+        }
     }
 
     #[test]
