@@ -1,16 +1,26 @@
 # QSOLQEC
 
+Purpose >>> To Correct Quantum Errors with Sound and Determinism?
+
+Arch >>>
 Integrate with QSOLKCB/QEC ? OR Do it Clean?
 
 Donor Repos -
+https://github.com/QSOLKCB/NS/ 
+https://github.com/QSOLKCB/NS-SIM 
+https://github.com/QSOLKCB/QSOL-FLOW
+https://github.com/QSOLKCB/YANG-MILLS
+https://github.com/QSOLKCB/GALAXY
 https://github.com/QSOLKCB/OPT/
 https://github.com/QSOLKCB/QSOL-MESH/
 https://github.com/QSOLKCB/SPECTRAL/
+https://github.com/QSOLKCB/TFT
 https://github.com/QSOLKCB/SONIFICATION/
+https://github.com/QSOLKCB/QNTOY
 https://github.com/QSOLKCB/GLUBALL/
-https://github.com/QSOLKCB/RSH/
 https://github.com/QSOLKCB/QSOL-GEO-REASON/
 https://github.com/QSOLKCB/UFT-ID-3.0/
+https://github.com/QSOLKCB/QSOLAI
 
 Small AI Model (4b to 12b)
 Quantum Error Correction Repo using QISKIT / AER ?
@@ -29,7 +39,7 @@ Ququart 4-State ARCH  Decoder > Glass Box > Observation > Control.
 
 Quantum Backend Integration. ?
 
-No claims of "Quantum Advantage", Unless it's already reached.
+No claims of "Quantum Advantage", Unless it's already reached. Which would be nice :-).
 
 1st PR - Documentation.
 2nd PR - Lock Down Invariants and use Invariant Registry from QSOLKCB/QEC
