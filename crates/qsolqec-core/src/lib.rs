@@ -209,7 +209,10 @@ mod tests {
     #[test]
     fn basis_order_is_frozen_to_subsystem_zero_least_significant() {
         let spec = SystemSpec::new(4, 2).unwrap();
-        assert_eq!(spec.basis_order(), BasisOrder::SubsystemZeroLeastSignificant);
+        assert_eq!(
+            spec.basis_order(),
+            BasisOrder::SubsystemZeroLeastSignificant
+        );
         assert_eq!(spec.basis_index(&[3, 2]), Ok(11));
         assert_eq!(spec.basis_digits(11), Ok(vec![3, 2]));
     }
