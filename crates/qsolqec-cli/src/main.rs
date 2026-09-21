@@ -1,11 +1,9 @@
 use qsolqec_core::SystemSpec;
 use qsolqec_dense::{module_descriptor as dense_descriptor, DenseState};
-use qsolqec_glassbox::{
-    module_descriptor as glassbox_descriptor, GlassBox, NumericalContract,
-};
+use qsolqec_glassbox::{module_descriptor as glassbox_descriptor, GlassBox, NumericalContract};
+use qsolqec_module_api::DataKind;
 use qsolqec_ops::Operation;
 use qsolqec_runtime::{ExperimentPlan, ModuleBinding, PipelineEdge};
-use qsolqec_module_api::DataKind;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let system = SystemSpec::new(4, 2)?;
