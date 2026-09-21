@@ -47,7 +47,7 @@ The dense representation computes its semantic state digest from:
 - frozen basis order;
 - every complex amplitude as IEEE-754 bit patterns.
 
-The digest is SHA-256.
+The digest is SHA-256 and is fed incrementally. Observation does not build a second amplitude-sized canonical buffer, so enabling the Glass Box does not duplicate the dense state merely to hash it.
 
 This digest identifies the represented dense state. It does not claim cryptographic proof of physical quantum state.
 
@@ -71,6 +71,8 @@ Initial contracts support:
 - exact IEEE-754 bit comparison;
 - absolute amplitude tolerance under IEEE-754 `f64`.
 
+Semantically equivalent zero tolerances are canonicalized: `-0.0` and `+0.0` produce the same contract and artifact identity.
+
 Normalization policy is `ObserveOnly`: the observer records the norm and never silently normalizes the state.
 
 The numerical contract is evidence metadata. It does not let a backend choose a tolerance after seeing a result.
@@ -83,11 +85,13 @@ Each observed representation declares either:
 Exact
 ```
 
-or:
+or a validated:
 
 ```text
 Approximate(method, optional declared absolute error)
 ```
+
+Approximate metadata can only be constructed through its validating constructor; external representations cannot directly populate unchecked method/error fields. Signed zero error bounds are canonicalized to `+0.0`.
 
 The dense oracle declares `Exact`.
 
