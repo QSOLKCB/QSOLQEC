@@ -56,10 +56,9 @@ impl ApproximationDeclaration {
         }
 
         let declared_absolute_error = match declared_absolute_error {
-            Some(bound) => Some(canonical_nonnegative(
-                bound,
-                |bound| ApproximationError::InvalidAbsoluteError { bound },
-            )?),
+            Some(bound) => Some(canonical_nonnegative(bound, |bound| {
+                ApproximationError::InvalidAbsoluteError { bound }
+            })?),
             None => None,
         };
 
@@ -670,8 +669,7 @@ mod tests {
         assert!(ApproximationDeclaration::approximate("", None).is_err());
         assert!(ApproximationDeclaration::approximate("mps", Some(-0.1)).is_err());
 
-        let declaration =
-            ApproximationDeclaration::approximate("mps", Some(1.0e-6)).unwrap();
+        let declaration = ApproximationDeclaration::approximate("mps", Some(1.0e-6)).unwrap();
         match declaration {
             ApproximationDeclaration::Approximate(spec) => {
                 assert_eq!(spec.method(), "mps");
@@ -683,8 +681,7 @@ mod tests {
 
     #[test]
     fn approximation_error_bound_canonicalizes_signed_zero() {
-        let declaration =
-            ApproximationDeclaration::approximate("mps", Some(-0.0)).unwrap();
+        let declaration = ApproximationDeclaration::approximate("mps", Some(-0.0)).unwrap();
         match declaration {
             ApproximationDeclaration::Approximate(spec) => {
                 assert_eq!(
