@@ -118,17 +118,19 @@ crates/
 ├── qsolqec-core/         Q(d,n), basis ordering, representation-independent geometry
 ├── qsolqec-module-api/   module descriptors and typed capability contract
 ├── qsolqec-runtime/      experiment graph validation
-├── qsolqec-ops/          R2 generalized qudit operation semantics
+├── qsolqec-ops/          generalized qudit operation semantics
+├── qsolqec-glassbox/     R3 observation events and artifact identity
 ├── qsolqec-dense/        dense oracle + scalar operation execution
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
-R2 freezes generalized qudit operation conventions and executes them without constructing global `d^n x d^n` matrices.
+R3 wraps operation execution in a representation-neutral Glass Box with typed pre/post events, numerical contracts, approximation declarations, timing/memory observations, and stable semantic artifact identity.
 
 See:
 
 - [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md)
 - [docs/QUDIT_OPERATIONS.md](docs/QUDIT_OPERATIONS.md)
+- [docs/GLASS_BOX.md](docs/GLASS_BOX.md)
 
 ## Historical inspiration
 
@@ -155,8 +157,8 @@ Import the useful contract or method, not an entire repository by default.
 
 1. **R0 - Modular research foundation** - complete in PR #1.
 2. **R1 - Native qudit dense oracle** - complete in PR #2.
-3. **R2 - Generalized qudit operations** - Weyl X/Z, Fourier, controlled shift, swap/permutation, local-unitary fallback.
-4. **R3 - Glass Box events** - deterministic observations around module execution.
+3. **R2 - Generalized qudit operations** - complete in PR #3.
+4. **R3 - Glass Box events** - pre/post observation, numerical contracts, timing/memory, approximation, artifact identity.
 5. **R4 - First alternate representation** - likely stabilizer/tableau where applicable.
 6. **R5 - Representation benchmark harness** - time, memory, fidelity, representation size.
 7. **R6 - Noise and QEC modules** - bounded error models and decoders.
@@ -168,6 +170,6 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Current status
 
-**R2: generalized qudit operations.**
+**R3: Glass Box observation boundary.**
 
-The project now has a concrete dense reference representation and frozen generalized operation semantics, but still makes no quantum-advantage, hardware, decoder-performance, or phononic-control claim.
+The project now records deterministic semantic identities around operation execution while keeping timing and other runtime observations separate from correctness authority. It still makes no quantum-advantage, hardware, decoder-performance, or phononic-control claim.

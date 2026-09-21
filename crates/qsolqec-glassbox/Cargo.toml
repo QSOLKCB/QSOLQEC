@@ -1,17 +1,13 @@
 [package]
-name = "qsolqec-dense"
-version = "0.3.0"
+name = "qsolqec-glassbox"
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Exact dense qudit reference oracle for QSOLQEC"
+description = "Deterministic observation boundary and receipt identity for QSOLQEC"
 
 [dependencies]
-num-complex = "0.4"
 qsolqec-core = { path = "../qsolqec-core" }
-qsolqec-glassbox = { path = "../qsolqec-glassbox" }
 qsolqec-module-api = { path = "../qsolqec-module-api" }
 qsolqec-ops = { path = "../qsolqec-ops" }
-
-[dev-dependencies]
-serde_json = "1"
+sha2 = "0.10"
