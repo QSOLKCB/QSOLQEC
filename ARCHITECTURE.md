@@ -63,6 +63,19 @@ Initial capability vocabulary:
 
 The vocabulary can grow, but the runtime must not infer capabilities from module names.
 
+R2 separates **operation semantics** from **representation execution**:
+
+```text
+qsolqec-ops
+operation definitions / validation
+          |
+          v
+qsolqec-dense
+scalar dense execution
+```
+
+A future sparse, stabilizer, tensor, GPU, or other representation can implement the same operation contract without inheriting dense storage.
+
 ## 4. Typed scientific pipeline
 
 Modules connect through declared data kinds rather than hidden shared state.
@@ -103,7 +116,7 @@ QuditState -> Compressor -> EncodedState -> Decompressor -> QuditState
                                                      Oracle
 ```
 
-The first runtime validates graph compatibility. It does not yet execute arbitrary pipelines.
+The initial runtime validates graph compatibility. It does not yet execute arbitrary pipelines.
 
 ## 5. Q(d,n) model and basis ordering
 
@@ -135,7 +148,26 @@ The normative conversion helpers are `SystemSpec::basis_index` and `SystemSpec::
 
 See [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md).
 
-## 6. Oracle separation
+## 6. Operation conventions
+
+R2 freezes the generalized operation conventions.
+
+With `omega = exp(2*pi*i/d)`:
+
+```text
+X_d(s)|j> = |j+s mod d>
+Z_d(p)|j> = omega^(p*j)|j>
+F_d|j> = 1/sqrt(d) sum_k omega^(j*k)|k>
+CS_s|c,t> = |c,t+c*s mod d>
+```
+
+`F_d` uses the positive-exponent DFT convention.
+
+Local operations are applied to strided amplitude lanes. Two-subsystem permutation-style operations calculate destination indices. The dense executor never materializes a global `d^n x d^n` matrix for these operations.
+
+See [docs/QUDIT_OPERATIONS.md](docs/QUDIT_OPERATIONS.md).
+
+## 7. Oracle separation
 
 An oracle exists to judge a candidate representation or decoder where exact calculation remains tractable.
 
@@ -154,9 +186,9 @@ comparison
 
 If a candidate needs oracle intervention to produce its result, that must be a different experiment.
 
-The R1 dense oracle is intentionally exponential. Its purpose is reference truth on tractable systems, not scalability.
+The dense oracle is intentionally exponential. Its purpose is reference truth on tractable systems, not scalability.
 
-## 7. Numerical contracts
+## 8. Numerical contracts
 
 Floating-point reproducibility and deterministic experiment identity are different concepts.
 
@@ -177,11 +209,13 @@ Numerical results may require a declared comparison such as:
 - fidelity;
 - distribution distance.
 
-The R1 dense oracle uses serial fixed-order `f64` accumulation for its norm reference. It does not silently normalize supplied amplitudes.
+The dense oracle uses serial fixed-order `f64` accumulation for its norm reference. It does not silently normalize supplied amplitudes.
+
+R2 validates user-supplied local unitary definitions against `U†U = I` using a fixed construction tolerance of `1e-12`. That construction check is distinct from later experiment-result comparison contracts.
 
 An optimized CPU/GPU backend must not be declared incorrect merely because floating-point reduction order changes last-bit results, but neither may it choose its own acceptance rule after seeing the output.
 
-## 8. Compute backends
+## 9. Compute backends
 
 Compute acceleration is a module concern.
 
@@ -209,7 +243,7 @@ serial reference
 
 with bounded comparison against the reference.
 
-## 9. Observation and sonification
+## 10. Observation and sonification
 
 The Glass Box is an observer layer around execution.
 
@@ -242,13 +276,13 @@ modeled mechanical control -> modeled quantum state
 
 Sonification and phononic control must not be conflated.
 
-## 10. Dynamic loading
+## 11. Dynamic loading
 
 The architecture is modular, but the initial implementation does not use runtime-loaded shared libraries.
 
 Initial modules are ordinary Rust crates registered at compile time. Dynamic loading can be considered later if a concrete research need justifies the ABI and platform complexity.
 
-## 11. Experimental freedom
+## 12. Experimental freedom
 
 The project explicitly permits modules that are:
 

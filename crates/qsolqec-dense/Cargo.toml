@@ -1,6 +1,6 @@
 [package]
 name = "qsolqec-dense"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -10,6 +10,7 @@ description = "Exact dense qudit reference oracle for QSOLQEC"
 num-complex = "0.4"
 qsolqec-core = { path = "../qsolqec-core" }
 qsolqec-module-api = { path = "../qsolqec-module-api" }
+qsolqec-ops = { path = "../qsolqec-ops" }
 
 [dev-dependencies]
 serde_json = "1"

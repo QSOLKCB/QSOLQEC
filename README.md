@@ -25,7 +25,7 @@ Q(3, n) -> qutrits
 Q(4, n) -> ququarts
 ```
 
-The naive dense state requires `d^n` complex amplitudes. R1 implements that dense representation as the small-system oracle, not as the scalability strategy.
+The naive dense state requires `d^n` complex amplitudes. The dense representation is the small-system oracle, not the scalability strategy.
 
 ## What this repository is
 
@@ -118,13 +118,17 @@ crates/
 ├── qsolqec-core/         Q(d,n), basis ordering, representation-independent geometry
 ├── qsolqec-module-api/   module descriptors and typed capability contract
 ├── qsolqec-runtime/      experiment graph validation
-├── qsolqec-dense/        R1 exact dense qudit oracle
+├── qsolqec-ops/          R2 generalized qudit operation semantics
+├── qsolqec-dense/        dense oracle + scalar operation execution
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
-R1 freezes subsystem 0 as the least-significant base-`d` digit and adds machine-checked dense basis fixtures for d=2, d=3, and d=4.
+R2 freezes generalized qudit operation conventions and executes them without constructing global `d^n x d^n` matrices.
 
-See [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md).
+See:
+
+- [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md)
+- [docs/QUDIT_OPERATIONS.md](docs/QUDIT_OPERATIONS.md)
 
 ## Historical inspiration
 
@@ -150,8 +154,8 @@ Import the useful contract or method, not an entire repository by default.
 ## Initial roadmap
 
 1. **R0 - Modular research foundation** - complete in PR #1.
-2. **R1 - Native qudit dense oracle** - exact `Q(d,n)` small-system reference.
-3. **R2 - Generalized qudit operations** - Weyl X/Z, Fourier, controlled shift, swap.
+2. **R1 - Native qudit dense oracle** - complete in PR #2.
+3. **R2 - Generalized qudit operations** - Weyl X/Z, Fourier, controlled shift, swap/permutation, local-unitary fallback.
 4. **R3 - Glass Box events** - deterministic observations around module execution.
 5. **R4 - First alternate representation** - likely stabilizer/tableau where applicable.
 6. **R5 - Representation benchmark harness** - time, memory, fidelity, representation size.
@@ -164,6 +168,6 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Current status
 
-**R1: native qudit dense oracle.**
+**R2: generalized qudit operations.**
 
-The project now has a concrete small-system reference representation, but still makes no quantum-advantage, hardware, decoder-performance, or phononic-control claim.
+The project now has a concrete dense reference representation and frozen generalized operation semantics, but still makes no quantum-advantage, hardware, decoder-performance, or phononic-control claim.

@@ -1,6 +1,6 @@
 [package]
 name = "qsolqec-cli"
-version = "0.0.2"
+version = "0.0.3"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -10,4 +10,5 @@ description = "Minimal QSOLQEC experiment-runtime smoke CLI"
 qsolqec-core = { path = "../qsolqec-core" }
 qsolqec-dense = { path = "../qsolqec-dense" }
 qsolqec-module-api = { path = "../qsolqec-module-api" }
+qsolqec-ops = { path = "../qsolqec-ops" }
 qsolqec-runtime = { path = "../qsolqec-runtime" }

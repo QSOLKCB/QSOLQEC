@@ -32,6 +32,8 @@ No decoder, statevector, QEC code, GPU backend, or sonifier is implemented in R0
 
 ## R1 - Native qudit dense oracle
 
+**Complete: PR #2**
+
 - Complex dense state for `Q(d,n)`.
 - Explicit basis ordering.
 - Checked `d^n` sizing and fallible allocation.
@@ -46,15 +48,16 @@ The dense engine is a correctness oracle, not the scalability strategy.
 
 ## R2 - Generalized qudit operations
 
+- Representation-independent operation definitions.
 - Weyl `X_d`.
 - Weyl `Z_d`.
-- Discrete Fourier transform `F_d`.
-- Controlled shift.
-- Swap/permutation operations.
-- Generic local unitary fallback.
-- Algebraic property tests.
-
-Avoid constructing global `d^n x d^n` matrices for local operations.
+- Positive-exponent discrete Fourier transform `F_d`.
+- SUM-style controlled shift.
+- Swap and local permutation operations.
+- Validated generic local unitary fallback.
+- Dense scalar local kernels without global `d^n x d^n` matrices.
+- Full batch validation before mutation.
+- Algebraic property tests for d=2, d=3, d=4.
 
 ## R3 - Glass Box
 
