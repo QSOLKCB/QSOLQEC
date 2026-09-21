@@ -1,0 +1,1068 @@
+//! QSOLQEC R5 memory-wall benchmark runtime.
+//!
+//! The harness separates deterministic experiment identity from host identity
+//! and separates logical representation bytes from process RSS. A measured
+//! point is intended to run in a fresh process so Linux VmHWM is scoped to that
+//! experiment rather than contaminated by earlier representations.
+
+use std::fmt;
+use std::fs;
+use std::process::Command;
+use std::time::Instant;
+
+use num_complex::Complex64;
+use qsolqec_core::SystemSpec;
+use qsolqec_dense::{DenseState, DenseStateError};
+use qsolqec_glassbox::{sha256_hex, ObservableState, SemanticHasher};
+use qsolqec_ops::{Operation, OperationSupport};
+use qsolqec_stabilizer::{PrimeStabilizerState, StabilizerError};
+use serde::{Deserialize, Serialize};
+
+pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v1";
+pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v1";
+pub const HOST_SCHEMA: &str = "qsolqec.memorywall.host.v1";
+pub const WORKLOAD_SCHEMA: &str = "qsolqec.memorywall.clifford-ring.v1";
+pub const DEFAULT_ORACLE_LOGICAL_LIMIT_BYTES: u64 = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RepresentationKind {
+    Dense,
+    PrimeStabilizer,
+}
+
+impl RepresentationKind {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Dense => "dense-reference",
+            Self::PrimeStabilizer => "prime-stabilizer",
+        }
+    }
+}
+
+impl fmt::Display for RepresentationKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Dense => "dense",
+            Self::PrimeStabilizer => "stabilizer",
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExperimentSpec {
+    pub representation: RepresentationKind,
+    pub dimension: usize,
+    pub subsystems: usize,
+    pub rounds: usize,
+    pub max_logical_bytes: Option<u64>,
+    pub oracle_logical_limit_bytes: u64,
+}
+
+impl ExperimentSpec {
+    pub fn new(
+        representation: RepresentationKind,
+        dimension: usize,
+        subsystems: usize,
+        rounds: usize,
+    ) -> Self {
+        Self {
+            representation,
+            dimension,
+            subsystems,
+            rounds,
+            max_logical_bytes: None,
+            oracle_logical_limit_bytes: DEFAULT_ORACLE_LOGICAL_LIMIT_BYTES,
+        }
+    }
+
+    pub fn system(&self) -> Result<SystemSpec, HarnessError> {
+        if self.rounds == 0 {
+            return Err(HarnessError::InvalidSpec(
+                "rounds must be at least 1".into(),
+            ));
+        }
+        SystemSpec::new(self.dimension, self.subsystems)
+            .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GpuInfo {
+    pub name: String,
+    pub memory_total_bytes: Option<u64>,
+    pub driver_version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostInfo {
+    pub schema: String,
+    pub os: String,
+    pub arch: String,
+    pub hostname: Option<String>,
+    pub cpu_model: Option<String>,
+    pub logical_cpu_count: Option<usize>,
+    pub total_memory_bytes: Option<u64>,
+    pub gpus: Vec<GpuInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkloadIdentity {
+    pub schema: String,
+    pub id: String,
+    pub operation_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimingMeasurements {
+    pub construction_ns: Option<u64>,
+    pub execution_ns: Option<u64>,
+    pub snapshot_ns: Option<u64>,
+    pub oracle_verification_ns: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryMeasurements {
+    pub estimated_logical_bytes: Option<u64>,
+    pub logical_bytes: Option<u64>,
+    pub materialized_payload_bytes: Option<u64>,
+    pub resident_working_set_bytes: Option<u64>,
+    pub rss_before_bytes: Option<u64>,
+    pub rss_after_bytes: Option<u64>,
+    pub peak_process_rss_before_bytes: Option<u64>,
+    pub peak_process_rss_bytes: Option<u64>,
+    pub incremental_peak_rss_bytes: Option<u64>,
+    pub allocation_count: Option<u64>,
+    pub materialization_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+pub enum OracleAgreement {
+    SelfReference,
+    Matched { tolerance: f64, max_error: f64 },
+    Mismatch { tolerance: f64, max_error: f64 },
+    Unavailable { reason: String },
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+pub enum RunOutcome {
+    Success,
+    Unsupported { reason: String },
+    SizeOverflow { reason: String },
+    LogicalBudgetExceeded {
+        required_bytes: u64,
+        limit_bytes: u64,
+    },
+    AllocationFailed { reason: String },
+    ExecutionFailed { reason: String },
+}
+
+impl RunOutcome {
+    pub const fn is_success(&self) -> bool {
+        matches!(self, Self::Success)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReceiptBody {
+    pub experiment_id: String,
+    pub source_revision: String,
+    pub representation: RepresentationKind,
+    pub representation_id: String,
+    pub compute_backend: String,
+    pub worker_count: usize,
+    pub dimension: usize,
+    pub subsystems: usize,
+    pub rounds: usize,
+    pub workload: WorkloadIdentity,
+    pub host: HostInfo,
+    pub memory: MemoryMeasurements,
+    pub timings: TimingMeasurements,
+    pub final_state_digest: Option<String>,
+    pub norm_squared: Option<f64>,
+    pub oracle_agreement: OracleAgreement,
+    pub outcome: RunOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryWallReceipt {
+    pub schema: String,
+    pub receipt_id: String,
+    pub body: ReceiptBody,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepReceipt {
+    pub schema: String,
+    pub source_revision: String,
+    pub dimension: usize,
+    pub start_n: usize,
+    pub end_n: usize,
+    pub step: usize,
+    pub rounds: usize,
+    pub representations: Vec<RepresentationKind>,
+    pub points: Vec<MemoryWallReceipt>,
+}
+
+#[derive(Debug)]
+pub enum HarnessError {
+    InvalidSpec(String),
+    Workload(String),
+    Serialization(String),
+    Io(String),
+    Child(String),
+}
+
+impl fmt::Display for HarnessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidSpec(message) => write!(f, "invalid experiment spec: {message}"),
+            Self::Workload(message) => write!(f, "workload error: {message}"),
+            Self::Serialization(message) => write!(f, "serialization error: {message}"),
+            Self::Io(message) => write!(f, "I/O error: {message}"),
+            Self::Child(message) => write!(f, "child-process error: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for HarnessError {}
+
+pub fn probe_host() -> HostInfo {
+    HostInfo {
+        schema: HOST_SCHEMA.into(),
+        os: std::env::consts::OS.into(),
+        arch: std::env::consts::ARCH.into(),
+        hostname: std::env::var("HOSTNAME").ok().filter(|value| !value.is_empty()),
+        cpu_model: linux_cpu_model(),
+        logical_cpu_count: std::thread::available_parallelism()
+            .ok()
+            .map(std::num::NonZeroUsize::get),
+        total_memory_bytes: linux_kib_field("/proc/meminfo", "MemTotal:")
+            .and_then(|kib| kib.checked_mul(1024)),
+        gpus: probe_nvidia_gpus(),
+    }
+}
+
+pub fn source_revision() -> String {
+    if let Ok(value) = std::env::var("QSOLQEC_SOURCE_SHA") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_owned();
+        }
+    }
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success());
+
+    output
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, HarnessError> {
+    let system = spec.system()?;
+    let operations = workload_operations(system, spec.rounds)?;
+    let workload = workload_identity(system, spec.rounds, &operations);
+    let experiment_id = experiment_id(spec, &workload);
+    let host = probe_host();
+    let revision = source_revision();
+
+    let estimated_logical_bytes = estimate_logical_bytes(spec.representation, system);
+    let rss_before_bytes = linux_current_rss_bytes();
+    let peak_before_bytes = linux_peak_rss_bytes();
+
+    if let (Some(required), Some(limit)) = (estimated_logical_bytes, spec.max_logical_bytes) {
+        if required > limit {
+            return finalize_receipt(ReceiptBody {
+                experiment_id,
+                source_revision: revision,
+                representation: spec.representation,
+                representation_id: spec.representation.id().into(),
+                compute_backend: "scalar-cpu".into(),
+                worker_count: 1,
+                dimension: spec.dimension,
+                subsystems: spec.subsystems,
+                rounds: spec.rounds,
+                workload,
+                host,
+                memory: MemoryMeasurements {
+                    estimated_logical_bytes: Some(required),
+                    logical_bytes: None,
+                    materialized_payload_bytes: None,
+                    resident_working_set_bytes: None,
+                    rss_before_bytes,
+                    rss_after_bytes: linux_current_rss_bytes(),
+                    peak_process_rss_before_bytes: peak_before_bytes,
+                    peak_process_rss_bytes: linux_peak_rss_bytes(),
+                    incremental_peak_rss_bytes: None,
+                    allocation_count: None,
+                    materialization_count: Some(0),
+                },
+                timings: empty_timings(),
+                final_state_digest: None,
+                norm_squared: None,
+                oracle_agreement: OracleAgreement::NotApplicable,
+                outcome: RunOutcome::LogicalBudgetExceeded {
+                    required_bytes: required,
+                    limit_bytes: limit,
+                },
+            });
+        }
+    }
+
+    match spec.representation {
+        RepresentationKind::Dense => run_dense(
+            spec,
+            system,
+            operations,
+            workload,
+            experiment_id,
+            host,
+            revision,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+        ),
+        RepresentationKind::PrimeStabilizer => run_stabilizer(
+            spec,
+            system,
+            operations,
+            workload,
+            experiment_id,
+            host,
+            revision,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_dense(
+    spec: &ExperimentSpec,
+    system: SystemSpec,
+    operations: Vec<Operation>,
+    workload: WorkloadIdentity,
+    experiment_id: String,
+    host: HostInfo,
+    revision: String,
+    estimated_logical_bytes: Option<u64>,
+    rss_before_bytes: Option<u64>,
+    peak_before_bytes: Option<u64>,
+) -> Result<MemoryWallReceipt, HarnessError> {
+    let construction_start = Instant::now();
+    let mut state = match DenseState::zero(system) {
+        Ok(state) => state,
+        Err(error) => {
+            let outcome = match error {
+                DenseStateError::StateSizeOverflow => RunOutcome::SizeOverflow {
+                    reason: error.to_string(),
+                },
+                DenseStateError::AllocationFailed { .. } => RunOutcome::AllocationFailed {
+                    reason: error.to_string(),
+                },
+                _ => RunOutcome::ExecutionFailed {
+                    reason: error.to_string(),
+                },
+            };
+            return failed_receipt(
+                spec,
+                workload,
+                experiment_id,
+                host,
+                revision,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                duration_ns(construction_start.elapsed()),
+                outcome,
+            );
+        }
+    };
+    let construction_ns = duration_ns(construction_start.elapsed());
+
+    let execution_start = Instant::now();
+    if let Err(error) = state.apply_operations(&operations) {
+        return failed_receipt(
+            spec,
+            workload,
+            experiment_id,
+            host,
+            revision,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+            construction_ns,
+            RunOutcome::ExecutionFailed {
+                reason: error.to_string(),
+            },
+        );
+    }
+    let execution_ns = duration_ns(execution_start.elapsed());
+
+    let snapshot_start = Instant::now();
+    let snapshot = state.observation_snapshot();
+    let snapshot_ns = duration_ns(snapshot_start.elapsed());
+
+    let peak_after = linux_peak_rss_bytes();
+    let rss_after = linux_current_rss_bytes();
+
+    finalize_receipt(ReceiptBody {
+        experiment_id,
+        source_revision: revision,
+        representation: spec.representation,
+        representation_id: spec.representation.id().into(),
+        compute_backend: "scalar-cpu".into(),
+        worker_count: 1,
+        dimension: spec.dimension,
+        subsystems: spec.subsystems,
+        rounds: spec.rounds,
+        workload,
+        host,
+        memory: MemoryMeasurements {
+            estimated_logical_bytes,
+            logical_bytes: u64::try_from(snapshot.logical_bytes).ok(),
+            materialized_payload_bytes: u64::try_from(snapshot.logical_bytes).ok(),
+            resident_working_set_bytes: None,
+            rss_before_bytes,
+            rss_after_bytes: rss_after,
+            peak_process_rss_before_bytes: peak_before_bytes,
+            peak_process_rss_bytes: peak_after,
+            incremental_peak_rss_bytes: peak_delta(peak_before_bytes, peak_after),
+            allocation_count: None,
+            materialization_count: Some(1),
+        },
+        timings: TimingMeasurements {
+            construction_ns: Some(construction_ns),
+            execution_ns: Some(execution_ns),
+            snapshot_ns: Some(snapshot_ns),
+            oracle_verification_ns: None,
+        },
+        final_state_digest: Some(snapshot.state_digest),
+        norm_squared: Some(snapshot.norm_squared),
+        oracle_agreement: OracleAgreement::SelfReference,
+        outcome: RunOutcome::Success,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_stabilizer(
+    spec: &ExperimentSpec,
+    system: SystemSpec,
+    operations: Vec<Operation>,
+    workload: WorkloadIdentity,
+    experiment_id: String,
+    host: HostInfo,
+    revision: String,
+    estimated_logical_bytes: Option<u64>,
+    rss_before_bytes: Option<u64>,
+    peak_before_bytes: Option<u64>,
+) -> Result<MemoryWallReceipt, HarnessError> {
+    let construction_start = Instant::now();
+    let mut state = match PrimeStabilizerState::zero(system) {
+        Ok(state) => state,
+        Err(error) => {
+            return failed_receipt(
+                spec,
+                workload,
+                experiment_id,
+                host,
+                revision,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                duration_ns(construction_start.elapsed()),
+                classify_stabilizer_error(error),
+            );
+        }
+    };
+    let construction_ns = duration_ns(construction_start.elapsed());
+
+    for operation in &operations {
+        match state.support_for(operation) {
+            Ok(OperationSupport::Exact) => {}
+            Ok(other) => {
+                return failed_receipt(
+                    spec,
+                    workload,
+                    experiment_id,
+                    host,
+                    revision,
+                    estimated_logical_bytes,
+                    rss_before_bytes,
+                    peak_before_bytes,
+                    construction_ns,
+                    RunOutcome::Unsupported {
+                        reason: format!("operation {} has support class {other:?}", operation.kind()),
+                    },
+                );
+            }
+            Err(error) => {
+                return failed_receipt(
+                    spec,
+                    workload,
+                    experiment_id,
+                    host,
+                    revision,
+                    estimated_logical_bytes,
+                    rss_before_bytes,
+                    peak_before_bytes,
+                    construction_ns,
+                    classify_stabilizer_error(error),
+                );
+            }
+        }
+    }
+
+    let execution_start = Instant::now();
+    if let Err(error) = state.apply_operations(&operations) {
+        return failed_receipt(
+            spec,
+            workload,
+            experiment_id,
+            host,
+            revision,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+            construction_ns,
+            classify_stabilizer_error(error),
+        );
+    }
+    let execution_ns = duration_ns(execution_start.elapsed());
+
+    let snapshot_start = Instant::now();
+    let snapshot = state.observation_snapshot();
+    let snapshot_ns = duration_ns(snapshot_start.elapsed());
+
+    // Freeze candidate memory measurements before running the dense oracle.
+    let peak_after = linux_peak_rss_bytes();
+    let rss_after = linux_current_rss_bytes();
+
+    let oracle_start = Instant::now();
+    let oracle_agreement = match estimate_dense_bytes(system) {
+        None => OracleAgreement::Unavailable {
+            reason: "dense oracle size overflows the platform address space".into(),
+        },
+        Some(bytes) if bytes > spec.oracle_logical_limit_bytes => OracleAgreement::Unavailable {
+            reason: format!(
+                "dense oracle logical bytes {bytes} exceed oracle limit {}",
+                spec.oracle_logical_limit_bytes
+            ),
+        },
+        Some(_) => match DenseState::zero(system) {
+            Err(error) => OracleAgreement::Unavailable {
+                reason: format!("dense oracle construction failed: {error}"),
+            },
+            Ok(mut dense) => match dense.apply_operations(&operations) {
+                Err(error) => OracleAgreement::Unavailable {
+                    reason: format!("dense oracle execution failed: {error}"),
+                },
+                Ok(()) => {
+                    let tolerance = 1.0e-10;
+                    match stabilizer_max_error(&state, &dense) {
+                        Ok(max_error) if max_error <= tolerance => {
+                            OracleAgreement::Matched { tolerance, max_error }
+                        }
+                        Ok(max_error) => OracleAgreement::Mismatch { tolerance, max_error },
+                        Err(error) => OracleAgreement::Unavailable {
+                            reason: error.to_string(),
+                        },
+                    }
+                }
+            },
+        },
+    };
+    let oracle_verification_ns = duration_ns(oracle_start.elapsed());
+
+    finalize_receipt(ReceiptBody {
+        experiment_id,
+        source_revision: revision,
+        representation: spec.representation,
+        representation_id: spec.representation.id().into(),
+        compute_backend: "scalar-cpu".into(),
+        worker_count: 1,
+        dimension: spec.dimension,
+        subsystems: spec.subsystems,
+        rounds: spec.rounds,
+        workload,
+        host,
+        memory: MemoryMeasurements {
+            estimated_logical_bytes,
+            logical_bytes: u64::try_from(snapshot.logical_bytes).ok(),
+            materialized_payload_bytes: u64::try_from(snapshot.logical_bytes).ok(),
+            resident_working_set_bytes: None,
+            rss_before_bytes,
+            rss_after_bytes: rss_after,
+            peak_process_rss_before_bytes: peak_before_bytes,
+            peak_process_rss_bytes: peak_after,
+            incremental_peak_rss_bytes: peak_delta(peak_before_bytes, peak_after),
+            allocation_count: None,
+            materialization_count: Some(1),
+        },
+        timings: TimingMeasurements {
+            construction_ns: Some(construction_ns),
+            execution_ns: Some(execution_ns),
+            snapshot_ns: Some(snapshot_ns),
+            oracle_verification_ns: Some(oracle_verification_ns),
+        },
+        final_state_digest: Some(snapshot.state_digest),
+        norm_squared: Some(snapshot.norm_squared),
+        oracle_agreement,
+        outcome: RunOutcome::Success,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn failed_receipt(
+    spec: &ExperimentSpec,
+    workload: WorkloadIdentity,
+    experiment_id: String,
+    host: HostInfo,
+    revision: String,
+    estimated_logical_bytes: Option<u64>,
+    rss_before_bytes: Option<u64>,
+    peak_before_bytes: Option<u64>,
+    construction_ns: u64,
+    outcome: RunOutcome,
+) -> Result<MemoryWallReceipt, HarnessError> {
+    let peak_after = linux_peak_rss_bytes();
+    finalize_receipt(ReceiptBody {
+        experiment_id,
+        source_revision: revision,
+        representation: spec.representation,
+        representation_id: spec.representation.id().into(),
+        compute_backend: "scalar-cpu".into(),
+        worker_count: 1,
+        dimension: spec.dimension,
+        subsystems: spec.subsystems,
+        rounds: spec.rounds,
+        workload,
+        host,
+        memory: MemoryMeasurements {
+            estimated_logical_bytes,
+            logical_bytes: None,
+            materialized_payload_bytes: None,
+            resident_working_set_bytes: None,
+            rss_before_bytes,
+            rss_after_bytes: linux_current_rss_bytes(),
+            peak_process_rss_before_bytes: peak_before_bytes,
+            peak_process_rss_bytes: peak_after,
+            incremental_peak_rss_bytes: peak_delta(peak_before_bytes, peak_after),
+            allocation_count: None,
+            materialization_count: Some(0),
+        },
+        timings: TimingMeasurements {
+            construction_ns: Some(construction_ns),
+            execution_ns: None,
+            snapshot_ns: None,
+            oracle_verification_ns: None,
+        },
+        final_state_digest: None,
+        norm_squared: None,
+        oracle_agreement: OracleAgreement::NotApplicable,
+        outcome,
+    })
+}
+
+fn finalize_receipt(body: ReceiptBody) -> Result<MemoryWallReceipt, HarnessError> {
+    let canonical = serde_json::to_vec(&body)
+        .map_err(|error| HarnessError::Serialization(error.to_string()))?;
+    Ok(MemoryWallReceipt {
+        schema: RECEIPT_SCHEMA.into(),
+        receipt_id: format!("sha256:{}", sha256_hex(&canonical)),
+        body,
+    })
+}
+
+fn empty_timings() -> TimingMeasurements {
+    TimingMeasurements {
+        construction_ns: None,
+        execution_ns: None,
+        snapshot_ns: None,
+        oracle_verification_ns: None,
+    }
+}
+
+fn classify_stabilizer_error(error: StabilizerError) -> RunOutcome {
+    match error {
+        StabilizerError::NonPrimeDimension { .. } | StabilizerError::UnsupportedOperation { .. } => {
+            RunOutcome::Unsupported {
+                reason: error.to_string(),
+            }
+        }
+        StabilizerError::AllocationSizeOverflow { .. }
+        | StabilizerError::AllocationFailed { .. } => RunOutcome::AllocationFailed {
+            reason: error.to_string(),
+        },
+        _ => RunOutcome::ExecutionFailed {
+            reason: error.to_string(),
+        },
+    }
+}
+
+pub fn workload_operations(
+    system: SystemSpec,
+    rounds: usize,
+) -> Result<Vec<Operation>, HarnessError> {
+    if rounds == 0 {
+        return Err(HarnessError::Workload(
+            "rounds must be at least 1".into(),
+        ));
+    }
+
+    let per_round = if system.subsystems() == 1 { 3 } else { 5 };
+    let capacity = rounds
+        .checked_mul(per_round)
+        .ok_or_else(|| HarnessError::Workload("operation count overflow".into()))?;
+
+    let mut operations = Vec::new();
+    operations
+        .try_reserve_exact(capacity)
+        .map_err(|_| HarnessError::Workload(format!("cannot reserve {capacity} operations")))?;
+
+    for round in 0..rounds {
+        let target = round % system.subsystems();
+        operations.push(Operation::Fourier { target });
+
+        if system.subsystems() == 1 {
+            operations.push(Operation::WeylZ {
+                target,
+                power: 1,
+            });
+            operations.push(Operation::WeylX { target, shift: 1 });
+            continue;
+        }
+
+        let next = (target + 1) % system.subsystems();
+        operations.push(Operation::ControlledShift {
+            control: target,
+            target: next,
+            shift: 1,
+        });
+        operations.push(Operation::WeylZ {
+            target: next,
+            power: 1,
+        });
+        operations.push(Operation::WeylX { target, shift: 1 });
+        operations.push(Operation::Swap { a: target, b: next });
+    }
+
+    Ok(operations)
+}
+
+pub fn workload_identity(
+    system: SystemSpec,
+    rounds: usize,
+    operations: &[Operation],
+) -> WorkloadIdentity {
+    let mut hasher = SemanticHasher::new();
+    hash_bytes(&mut hasher, WORKLOAD_SCHEMA.as_bytes());
+    hasher.update(&(system.dimension() as u128).to_be_bytes());
+    hasher.update(&(system.subsystems() as u128).to_be_bytes());
+    hasher.update(&(rounds as u128).to_be_bytes());
+    hasher.update(&(operations.len() as u128).to_be_bytes());
+
+    for operation in operations {
+        let bytes = operation.canonical_bytes();
+        hasher.update(&(bytes.len() as u128).to_be_bytes());
+        hasher.update(&bytes);
+    }
+
+    WorkloadIdentity {
+        schema: WORKLOAD_SCHEMA.into(),
+        id: format!("sha256:{}", hasher.finalize_hex()),
+        operation_count: operations.len(),
+    }
+}
+
+fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
+    let mut hasher = SemanticHasher::new();
+    hash_bytes(&mut hasher, b"qsolqec.memorywall.experiment.v1");
+    hash_bytes(&mut hasher, spec.representation.id().as_bytes());
+    hasher.update(&(spec.dimension as u128).to_be_bytes());
+    hasher.update(&(spec.subsystems as u128).to_be_bytes());
+    hasher.update(&(spec.rounds as u128).to_be_bytes());
+    hash_bytes(&mut hasher, workload.id.as_bytes());
+    match spec.max_logical_bytes {
+        Some(bytes) => {
+            hasher.update(&[1]);
+            hasher.update(&bytes.to_be_bytes());
+        }
+        None => hasher.update(&[0]),
+    }
+    hasher.update(&spec.oracle_logical_limit_bytes.to_be_bytes());
+    hash_bytes(&mut hasher, b"scalar-cpu");
+    format!("sha256:{}", hasher.finalize_hex())
+}
+
+fn hash_bytes(hasher: &mut SemanticHasher, bytes: &[u8]) {
+    hasher.update(&(bytes.len() as u128).to_be_bytes());
+    hasher.update(bytes);
+}
+
+pub fn estimate_logical_bytes(
+    representation: RepresentationKind,
+    system: SystemSpec,
+) -> Option<u64> {
+    match representation {
+        RepresentationKind::Dense => estimate_dense_bytes(system),
+        RepresentationKind::PrimeStabilizer => {
+            let n = system.subsystems() as u128;
+            let scalars = n.checked_mul(n.checked_mul(2)?.checked_add(1)?)?;
+            let bytes = scalars.checked_mul(std::mem::size_of::<usize>() as u128)?;
+            u64::try_from(bytes).ok()
+        }
+    }
+}
+
+fn estimate_dense_bytes(system: SystemSpec) -> Option<u64> {
+    let amplitudes = system.dense_state_len()? as u128;
+    let bytes = amplitudes.checked_mul(std::mem::size_of::<Complex64>() as u128)?;
+    u64::try_from(bytes).ok()
+}
+
+fn stabilizer_max_error(
+    stabilizer: &PrimeStabilizerState,
+    dense: &DenseState,
+) -> Result<f64, HarnessError> {
+    if stabilizer.spec() != dense.spec() {
+        return Err(HarnessError::Workload(
+            "oracle and stabilizer SystemSpec differ".into(),
+        ));
+    }
+
+    let spec = dense.spec();
+    let d = spec.dimension();
+    let n = spec.subsystems();
+    let mut max_error = (dense.norm_squared() - 1.0).abs();
+
+    for generator in stabilizer.generators() {
+        for (source_index, amplitude) in dense.amplitudes().iter().copied().enumerate() {
+            let mut remainder = source_index;
+            let mut place = 1usize;
+            let mut destination = 0usize;
+            let mut exponent = generator.phase();
+
+            for subsystem in 0..n {
+                let digit = remainder % d;
+                remainder /= d;
+
+                exponent = add_mod(
+                    exponent,
+                    mul_mod(generator.z()[subsystem], digit, d),
+                    d,
+                );
+                let destination_digit = add_mod(digit, generator.x()[subsystem], d);
+                destination = destination
+                    .checked_add(
+                        destination_digit
+                            .checked_mul(place)
+                            .ok_or_else(|| HarnessError::Workload("oracle index overflow".into()))?,
+                    )
+                    .ok_or_else(|| HarnessError::Workload("oracle index overflow".into()))?;
+
+                if subsystem + 1 < n {
+                    place = place
+                        .checked_mul(d)
+                        .ok_or_else(|| HarnessError::Workload("oracle place overflow".into()))?;
+                }
+            }
+
+            let angle = std::f64::consts::TAU * exponent as f64 / d as f64;
+            let phase = Complex64::from_polar(1.0, angle);
+            let error = (amplitude * phase - dense.amplitudes()[destination]).norm();
+            max_error = max_error.max(error);
+        }
+    }
+
+    Ok(max_error)
+}
+
+fn add_mod(a: usize, b: usize, modulus: usize) -> usize {
+    ((a as u128 + b as u128) % modulus as u128) as usize
+}
+
+fn mul_mod(a: usize, b: usize, modulus: usize) -> usize {
+    ((a as u128 * b as u128) % modulus as u128) as usize
+}
+
+fn duration_ns(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
+fn peak_delta(before: Option<u64>, after: Option<u64>) -> Option<u64> {
+    Some(after?.saturating_sub(before?))
+}
+
+fn linux_current_rss_bytes() -> Option<u64> {
+    linux_kib_field("/proc/self/status", "VmRSS:").and_then(|kib| kib.checked_mul(1024))
+}
+
+fn linux_peak_rss_bytes() -> Option<u64> {
+    linux_kib_field("/proc/self/status", "VmHWM:").and_then(|kib| kib.checked_mul(1024))
+}
+
+fn linux_kib_field(path: &str, field: &str) -> Option<u64> {
+    let text = fs::read_to_string(path).ok()?;
+    parse_kib_field(&text, field)
+}
+
+fn parse_kib_field(text: &str, field: &str) -> Option<u64> {
+    text.lines().find_map(|line| {
+        let rest = line.strip_prefix(field)?.trim();
+        rest.split_whitespace().next()?.parse().ok()
+    })
+}
+
+fn linux_cpu_model() -> Option<String> {
+    let text = fs::read_to_string("/proc/cpuinfo").ok()?;
+    text.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        if key.trim() == "model name" {
+            Some(value.trim().to_owned())
+        } else {
+            None
+        }
+    })
+}
+
+fn probe_nvidia_gpus() -> Vec<GpuInfo> {
+    let output = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,memory.total,driver_version",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let Ok(text) = String::from_utf8(output.stdout) else {
+        return Vec::new();
+    };
+
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split(',').map(str::trim);
+            let name = fields.next()?.to_owned();
+            let memory_mib = fields.next()?.parse::<u64>().ok();
+            let driver = fields.next().map(str::to_owned).filter(|value| !value.is_empty());
+            Some(GpuInfo {
+                name,
+                memory_total_bytes: memory_mib.and_then(|mib| mib.checked_mul(1024 * 1024)),
+                driver_version: driver,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workload_is_deterministic_and_representation_independent() {
+        let system = SystemSpec::new(3, 3).unwrap();
+        let first = workload_operations(system, 4).unwrap();
+        let second = workload_operations(system, 4).unwrap();
+        assert_eq!(first, second);
+
+        let first_id = workload_identity(system, 4, &first);
+        let second_id = workload_identity(system, 4, &second);
+        assert_eq!(first_id, second_id);
+        assert_eq!(first_id.operation_count, 20);
+    }
+
+    #[test]
+    fn estimates_dense_and_stabilizer_bytes_separately() {
+        let system = SystemSpec::new(2, 12).unwrap();
+        assert_eq!(
+            estimate_logical_bytes(RepresentationKind::Dense, system),
+            Some(4096 * 16)
+        );
+        assert_eq!(
+            estimate_logical_bytes(RepresentationKind::PrimeStabilizer, system),
+            Some(12 * 25 * std::mem::size_of::<usize>() as u64)
+        );
+    }
+
+    #[test]
+    fn logical_budget_rejects_before_materialization() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 20, 1);
+        spec.max_logical_bytes = Some(1024);
+
+        let receipt = run_experiment(&spec).unwrap();
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::LogicalBudgetExceeded { .. }
+        ));
+        assert_eq!(receipt.body.memory.materialization_count, Some(0));
+        assert!(receipt.body.final_state_digest.is_none());
+    }
+
+    #[test]
+    fn dense_small_run_succeeds() {
+        let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 3, 2);
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(receipt.body.outcome.is_success());
+        assert_eq!(receipt.body.oracle_agreement, OracleAgreement::SelfReference);
+        assert_eq!(receipt.body.workload.operation_count, 10);
+        assert!(receipt.body.final_state_digest.is_some());
+        assert_eq!(receipt.body.memory.logical_bytes, Some(8 * 16));
+    }
+
+    #[test]
+    fn stabilizer_small_run_matches_dense_oracle() {
+        let spec = ExperimentSpec::new(RepresentationKind::PrimeStabilizer, 3, 2, 2);
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(receipt.body.outcome.is_success());
+        assert!(matches!(
+            receipt.body.oracle_agreement,
+            OracleAgreement::Matched { .. }
+        ));
+        assert!(receipt.body.final_state_digest.is_some());
+    }
+
+    #[test]
+    fn composite_dimension_is_reported_unsupported() {
+        let spec = ExperimentSpec::new(RepresentationKind::PrimeStabilizer, 4, 2, 1);
+        let receipt = run_experiment(&spec).unwrap();
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::Unsupported { .. }
+        ));
+    }
+
+    #[test]
+    fn parses_linux_kib_fields() {
+        let sample = "Name:\ttest\nVmRSS:\t1234 kB\nVmHWM:\t5678 kB\n";
+        assert_eq!(parse_kib_field(sample, "VmRSS:"), Some(1234));
+        assert_eq!(parse_kib_field(sample, "VmHWM:"), Some(5678));
+    }
+
+    #[test]
+    fn receipt_round_trips_json() {
+        let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
+        let receipt = run_experiment(&spec).unwrap();
+        let json = serde_json::to_string(&receipt).unwrap();
+        let decoded: MemoryWallReceipt = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.body.experiment_id, receipt.body.experiment_id);
+        assert_eq!(decoded.receipt_id, receipt.receipt_id);
+    }
+}
