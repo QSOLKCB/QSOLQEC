@@ -132,9 +132,6 @@ mod tests {
             maturity: Maturity::E0Sketch,
         };
 
-        assert_eq!(
-            descriptor.validate(),
-            Err(DescriptorError::NoCapabilities)
-        );
+        assert_eq!(descriptor.validate(), Err(DescriptorError::NoCapabilities));
     }
 }
