@@ -6,9 +6,7 @@ use qsolqec_glassbox::{
 use qsolqec_module_api::DataKind;
 use qsolqec_ops::{Operation, OperationSupport};
 use qsolqec_runtime::{ExperimentPlan, ModuleBinding, PipelineEdge};
-use qsolqec_stabilizer::{
-    module_descriptor as stabilizer_descriptor, PrimeStabilizerState,
-};
+use qsolqec_stabilizer::{module_descriptor as stabilizer_descriptor, PrimeStabilizerState};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let system = SystemSpec::new(3, 2)?;
