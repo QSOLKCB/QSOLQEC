@@ -206,7 +206,25 @@ Required concepts:
 - deterministic tile ownership;
 - explicit persistence/version boundaries;
 - exact versus approximate storage declaration;
-- failure on address-space exhaustion or unsupported allocation rather than silent wrap/reuse.
+- failure on address-space exhaustion or unsupported allocation rather than silent wrap/reuse;
+- a **typed storage-observation contract** distinct from quantum-state observation.
+
+The storage-observation contract should describe storage facts such as:
+
+```text
+storage geometry identity
+macrograph/source identity
+logical address count
+materialized address/page count
+materialized payload bytes
+resident tile/working-set bytes
+storage digest
+exact/approximate storage declaration
+```
+
+It must not require a `SystemSpec`, quantum norm, fidelity, or other state semantics that a neutral storage substrate does not yet possess.
+
+The existing Glass Box `ObservableState` contract remains reserved for representations that have an explicit Q(d,n) state interpretation.
 
 Candidate logical address form:
 
@@ -306,13 +324,56 @@ A first implementation should be able to:
 - bind every address to the pinned macrograph identity;
 - expose logical size separately from resident/materialized size;
 - materialize bounded regions without constructing the full logical store;
-- integrate with the Glass Box as an experimental representation/storage artifact.
+- emit the R6 typed storage snapshot/artifact without pretending the neutral store is already a Q(d,n) state representation.
+
+At R7, Fly-Phi664 is therefore a **storage substrate**, not yet a quantum-state representation. It must not implement `ObservableState` merely to obtain Glass Box compatibility.
 
 ---
 
-## R8 - GALAXY/OPT virtualized materialization layer
+## R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization
 
-R8 applies previously extracted optimization contracts to make Fly-Phi664 a sparse, hierarchical, incrementally materialized storage engine rather than a giant flat allocation.
+R8 has two ordered gates. The storage substrate must pass the state-binding gate before it can participate in QSOLQEC representation/oracle comparisons, and the baseline bound representation must exist before optimization mechanisms can claim parity.
+
+### Gate A - explicit Q(d,n) encoding and operation contract
+
+Define a representation adapter that binds neutral Fly-Phi664 storage to a declared quantum/qudit model.
+
+The adapter contract must state, at minimum:
+
+- the `SystemSpec = Q(d,n)` it represents;
+- the frozen basis-order convention it uses;
+- the payload codec from Q(d,n) state information into logical fibre addresses;
+- whether the codec is exact or approximate;
+- the inverse/reconstruction contract where reconstruction is claimed;
+- which observables may be decoded without full reconstruction;
+- the supported `Operation` subset and how each operation transforms the encoded representation;
+- the explicit `Exact / Approximate / Unsupported` support class;
+- the semantic state digest domain;
+- norm semantics, including whether norm is reconstructed, derived, or unavailable;
+- comparison/fidelity semantics against Dense where the oracle is tractable;
+- failure behavior when required state information cannot be represented or recovered.
+
+Only this **Q(d,n)-bound adapter** may implement the existing Glass Box `ObservableState` contract.
+
+The underlying Fly-Phi664 store remains representation-neutral and continues to expose only the R6 storage-observation contract.
+
+This preserves the separation:
+
+```text
+Fly-Phi664 storage substrate
+        !=
+Q(d,n) encoding adapter
+        !=
+quantum-state semantics
+```
+
+R9 may compare Fly-Phi664 against Dense/Stabilizer only after this adapter exists and deterministic tractable fixtures demonstrate that the declared workload can be encoded, operated on, and compared under the same experiment contract.
+
+### Gate B - GALAXY/OPT virtualized materialization
+
+After a baseline bound adapter exists, apply previously extracted optimization contracts to make Fly-Phi664 sparse, hierarchical, and incrementally materialized rather than a giant flat allocation.
+
+Every optimized path must preserve the Gate-A representation contract or explicitly declare a bounded approximation.
 
 The initial donor mechanisms are:
 
@@ -448,7 +509,8 @@ Required measurements:
 
 - logical namespace size;
 - actual persisted/materialized payload size;
-- peak resident working set;
+- peak resident tile/working-set bytes;
+- **peak process RSS**, including indexes, caches, allocator overhead, page maps, and other representation-owned resident structures where the platform exposes them;
 - number of materialized addresses/tiles;
 - number of reused versus recomputed regions;
 - operation runtime;
@@ -456,7 +518,9 @@ Required measurements:
 - exact/approximate/unsupported classification;
 - failure point as `n` grows.
 
-The experiment must not count unmaterialized logical addresses as resident memory savings unless the required information remains reproducible under the declared contract.
+The experiment must not count unmaterialized logical addresses as resident-memory savings unless the required information remains reproducible under the declared contract.
+
+A candidate also cannot claim a resident-memory win merely because its active tiles are small: peak process RSS must remain part of the comparison so occupancy indexes, caches, allocator overhead, page maps, and other resident structures cannot hide outside the working-set metric.
 
 ### Beyond the dense-oracle limit
 
