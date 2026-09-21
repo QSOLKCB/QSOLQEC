@@ -172,10 +172,7 @@ fn parse_representation(value: &str) -> Result<RepresentationKind, Box<dyn std::
     }
 }
 
-fn optional_mib(
-    args: &[String],
-    flag: &str,
-) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+fn optional_mib(args: &[String], flag: &str) -> Result<Option<u64>, Box<dyn std::error::Error>> {
     option_value(args, flag)
         .map(|value| {
             let mib: u64 = value
