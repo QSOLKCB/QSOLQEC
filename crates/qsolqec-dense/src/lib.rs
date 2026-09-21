@@ -95,12 +95,13 @@ impl DenseState {
     }
 
     pub fn basis_probability(&self, basis_index: usize) -> Result<f64, DenseStateError> {
-        let amplitude = self.amplitudes.get(basis_index).ok_or(
-            DenseStateError::BasisIndexOutOfRange {
-                index: basis_index,
-                state_len: self.amplitudes.len(),
-            },
-        )?;
+        let amplitude =
+            self.amplitudes
+                .get(basis_index)
+                .ok_or(DenseStateError::BasisIndexOutOfRange {
+                    index: basis_index,
+                    state_len: self.amplitudes.len(),
+                })?;
 
         Ok(amplitude.norm_sqr())
     }
@@ -132,20 +133,10 @@ pub fn module_descriptor() -> ModuleDescriptor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DenseStateError {
     StateSizeOverflow,
-    AllocationFailed {
-        amplitudes: usize,
-    },
-    BasisIndexOutOfRange {
-        index: usize,
-        state_len: usize,
-    },
-    AmplitudeCountMismatch {
-        expected: usize,
-        actual: usize,
-    },
-    NonFiniteAmplitude {
-        index: usize,
-    },
+    AllocationFailed { amplitudes: usize },
+    BasisIndexOutOfRange { index: usize, state_len: usize },
+    AmplitudeCountMismatch { expected: usize, actual: usize },
+    NonFiniteAmplitude { index: usize },
 }
 
 impl fmt::Display for DenseStateError {
@@ -254,10 +245,7 @@ mod tests {
     fn rejects_non_finite_amplitude() {
         let error = DenseState::from_amplitudes(
             SystemSpec::new(2, 1).unwrap(),
-            vec![
-                Complex64::new(1.0, 0.0),
-                Complex64::new(f64::NAN, 0.0),
-            ],
+            vec![Complex64::new(1.0, 0.0), Complex64::new(f64::NAN, 0.0)],
         )
         .unwrap_err();
 
@@ -266,23 +254,17 @@ mod tests {
 
     #[test]
     fn qubit_fixture_is_exact() {
-        assert_basis_fixture(include_str!(
-            "../../../fixtures/dense/q2-n2-basis.json"
-        ));
+        assert_basis_fixture(include_str!("../../../fixtures/dense/q2-n2-basis.json"));
     }
 
     #[test]
     fn qutrit_fixture_is_exact() {
-        assert_basis_fixture(include_str!(
-            "../../../fixtures/dense/q3-n2-basis.json"
-        ));
+        assert_basis_fixture(include_str!("../../../fixtures/dense/q3-n2-basis.json"));
     }
 
     #[test]
     fn ququart_fixture_is_exact() {
-        assert_basis_fixture(include_str!(
-            "../../../fixtures/dense/q4-n2-basis.json"
-        ));
+        assert_basis_fixture(include_str!("../../../fixtures/dense/q4-n2-basis.json"));
     }
 
     #[test]
@@ -290,7 +272,9 @@ mod tests {
         let descriptor = module_descriptor();
         descriptor.validate().unwrap();
 
-        assert!(descriptor.capabilities.contains(&Capability::StateRepresentation));
+        assert!(descriptor
+            .capabilities
+            .contains(&Capability::StateRepresentation));
         assert!(descriptor.capabilities.contains(&Capability::Oracle));
         assert_eq!(descriptor.maturity, Maturity::E2DeterministicFixture);
     }
