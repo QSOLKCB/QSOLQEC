@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/qsolqec-core",
+    "crates/qsolqec-module-api",
+    "crates/qsolqec-runtime",
+    "crates/qsolqec-cli",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MPL-2.0"
+repository = "https://github.com/QSOLKCB/QSOLQEC"
