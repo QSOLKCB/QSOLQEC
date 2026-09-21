@@ -38,3 +38,9 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Memory-wall smoke
+        run: |
+          cargo run -q -p qsolqec-memorywall -- run --representation dense --dimension 2 --subsystems 3 --rounds 2 --max-logical-mib 64 > /tmp/memorywall-dense.json
+          cargo run -q -p qsolqec-memorywall -- run --representation stabilizer --dimension 3 --subsystems 2 --rounds 2 --oracle-limit-mib 16 > /tmp/memorywall-stabilizer.json
+          cargo run -q -p qsolqec-memorywall -- sweep --representations dense,stabilizer --dimension 2 --start-n 2 --end-n 4 --step 2 --rounds 1 --max-logical-mib 64 --oracle-limit-mib 16 > /tmp/memorywall-sweep.json
