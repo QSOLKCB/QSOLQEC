@@ -1,48 +1,172 @@
 # QSOLQEC
 
-Purpose >>> To Correct Quantum Errors with Sound and Determinism?
+**A modular experimental compute laboratory for classical emulation, observation, correction, compression, and analysis of quantum and qudit computation.**
 
-Arch >>>
-Integrate with QSOLKCB/QEC ? OR Do it Clean?
+QSOLQEC is deliberately less strict than [QSOLKCB/QEC](https://github.com/QSOLKCB/QEC). It is the workshop: ideas are allowed to be speculative, approximate, incomplete, or wrong as long as the experiment declares what it actually demonstrates.
 
-Donor Repos -
-https://github.com/QSOLKCB/NS/ 
-https://github.com/QSOLKCB/NS-SIM 
-https://github.com/QSOLKCB/QSOL-FLOW
-https://github.com/QSOLKCB/YANG-MILLS
-https://github.com/QSOLKCB/GALAXY
-https://github.com/QSOLKCB/OPT/
-https://github.com/QSOLKCB/QSOL-MESH/
-https://github.com/QSOLKCB/SPECTRAL/
-https://github.com/QSOLKCB/TFT
-https://github.com/QSOLKCB/SONIFICATION/
-https://github.com/QSOLKCB/QNTOY
-https://github.com/QSOLKCB/GLUBALL/
-https://github.com/QSOLKCB/QSOL-GEO-REASON/
-https://github.com/QSOLKCB/UFT-ID-3.0/
-https://github.com/QSOLKCB/QSOLAI
+Mature results do **not** move directly into QEC. Candidates intended for integration must pass through [QSOLKCB/QSOL-QEC-BRIDGE](https://github.com/QSOLKCB/QSOL-QEC-BRIDGE).
 
-Small AI Model (4b to 12b)
-Quantum Error Correction Repo using QISKIT / AER ?
+## Central research question
 
-Fun Uncle, Less Strict than QSOLKCB/QEC
+> **How much quantum computation can be reproduced, compressed, decoded, or otherwise made tractable by deterministic classical computation before the classical representation hits the exponential wall?**
 
-ARCH
+QSOLQEC does not assume quantum advantage is impossible or inevitable. It tries to identify the boundary experimentally by making classical emulation as strong, modular, observable, and reproducible as practical.
 
-DECODER <<< ADVANCED QUQUART DECODER
-GLASS BOX AROUND DECODER.
-OBSERVATION LAYER
-Using Sound To Correct Errors e.g. [sciencedaily.com/releases/2026/09/260911214245.htm](https://www.sciencedaily.com/releases/2026/09/260911214245.htm)
-https://thequantuminsider.com/2026/09/18/researchers-observe-first-real-time-quantum-jump-in-sound/
+A useful model is:
 
-Ququart 4-State ARCH  Decoder > Glass Box > Observation > Control.
+```text
+Q(d, n)
 
-Quantum Backend Integration. ?
+d = local state dimension
+n = number of subsystems
 
-No claims of "Quantum Advantage", Unless it's already reached. Which would be nice :-).
+Q(2, n) -> qubits
+Q(3, n) -> qutrits
+Q(4, n) -> ququarts
+```
 
-1st PR - Documentation.
-2nd PR - Lock Down Invariants and use Invariant Registry from QSOLKCB/QEC
-3rd PR - Design an Advanced Decoder with an Oracle to start , so we can wire up everything.
+The naive dense state requires `d^n` complex amplitudes. That dense representation is intended to become the small-system oracle, not the final execution strategy.
 
-Fast Programming Languages? E.g. Rust.
+## What this repository is
+
+QSOLQEC is intended to host interchangeable research modules for:
+
+- native qubit, qutrit, ququart, and general-qudit representations;
+- exact dense statevector reference execution;
+- sparse, stabilizer, tensor, decision-diagram, spectral, or future experimental representations;
+- generalized qudit operations;
+- noise and error models;
+- quantum-error-correction decoders;
+- compression and approximation experiments;
+- Glass Box observation and diagnostics;
+- sonification of deterministic experiment events;
+- CPU, SIMD, GPU, multi-GPU, and distributed compute backends;
+- analysis and benchmarking;
+- small AI observers or strategy recommenders with no implicit authority.
+
+The core runtime should know as little quantum physics as possible. Modules advertise what capabilities they provide and what typed data they consume and produce.
+
+## What this repository is not
+
+QSOLQEC is not:
+
+- quantum hardware;
+- evidence of physical quantum behavior merely because a model was simulated;
+- a quantum-advantage claimant on the basis of classical emulation;
+- a Qiskit or Aer wrapper;
+- an LLM decoder;
+- a direct extension of QSOLKCB/QEC;
+- a place where experimental output automatically becomes canonical evidence.
+
+**Simulation is evidence about the declared model, not evidence about physical quantum hardware.**
+
+If a classical emulator efficiently reproduces a computation proposed as a quantum-separation example, that weakens the separation for that task; it does not make the classical emulator a quantum computer.
+
+See [CLAIM_BOUNDARIES.md](CLAIM_BOUNDARIES.md).
+
+## Architecture
+
+```text
+                         QSOLQEC
+                            |
+                     experiment runtime
+                            |
+                     module registry
+                            |
+    +---------+-------------+------------+---------+
+    |         |             |            |         |
+  state    operation      decoder      observer   compute
+ modules    modules       modules       modules    modules
+    |         |             |            |         |
+    +---------+-------------+------------+---------+
+                            |
+                       event stream
+                            |
+                    experiment artifacts
+                            |
+                    maturity / evidence
+                            |
+                   optional bridge export
+                            |
+                  QSOL-QEC-BRIDGE
+                            |
+                           QEC
+```
+
+The architecture is defined in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Experimental maturity
+
+Modules and experiments may declare a lightweight maturity level:
+
+```text
+E0  sketch
+E1  executes
+E2  deterministic fixture
+E3  oracle-compared
+E4  benchmarked
+E5  independently replicated
+E6  candidate for bridge evaluation
+```
+
+This is not a quality score. It records what evidence exists.
+
+## Rust foundation
+
+PR #1 establishes a deliberately small Rust workspace:
+
+```text
+crates/
+├── qsolqec-core/         Q(d,n) system specification
+├── qsolqec-module-api/   module descriptors and typed capability contract
+├── qsolqec-runtime/      experiment graph validation
+└── qsolqec-cli/          minimal executable smoke path
+```
+
+The first implementation does **not** contain a decoder, statevector engine, GPU backend, or sonifier. Those should arrive as modules after the contract is stable enough to test them independently.
+
+## Historical inspiration
+
+The project has conceptual ancestry in experiments such as [EmergentMonk/qecaudioqc64](https://github.com/EmergentMonk/qecaudioqc64), a fork of Davide Gessa's QC64 Commodore 64 quantum simulator. The original BASIC quantum simulator is Davide Gessa's work; the fork added SID-based audio and visual tracking. Its relevance here is observational: simulated state transitions were exposed through a secondary deterministic signal channel.
+
+QSOLQEC does not treat that historical program as a mathematical oracle.
+
+## Donor repositories
+
+Existing QSOL repositories may contribute ideas or future modules, but they are not automatically part of the QSOLQEC core.
+
+Likely module-level donors include:
+
+- QSOLKCB/QEC - replay, evidence, decoder-governance concepts;
+- QSOLKCB/SPECTRAL - spectral analysis experiments;
+- QSOLKCB/SONIFICATION - observation-to-audio experiments;
+- QSOLKCB/GALAXY - GPU compute experiments;
+- QSOLKCB/QSOL-MESH - distributed compute experiments;
+- QSOLKCB/QSOL-GEO-REASON, GLUBALL, UFT-ID-3.0, QSOLAI and others - experimental modules only when a bounded experiment justifies them.
+
+Import the useful contract or method, not an entire repository by default.
+
+## Initial roadmap
+
+PR #1 is the modular research foundation.
+
+The next intended rungs are:
+
+1. **Native qudit dense oracle** - exact `Q(d,n)` statevector for small systems.
+2. **Generalized qudit operations** - Weyl X/Z, Fourier, controlled shift, swap.
+3. **Glass Box events** - deterministic observations around module execution.
+4. **First alternate representation** - likely stabilizer/tableau where applicable.
+5. **Representation benchmark harness** - time, memory, fidelity, representation size.
+6. **Noise and QEC modules** - bounded error models and decoders.
+7. **Native ququart vs packed-qubit experiment**.
+8. **Sonification observer module**.
+9. **Compute acceleration modules** - SIMD/GPU/multi-GPU/distributed.
+10. **AI observer experiments**, only after deterministic evidence exists.
+
+See [ROADMAP.md](ROADMAP.md).
+
+## Current status
+
+**Foundation / PR #1: modular research runtime.**
+
+No quantum-advantage, hardware, decoder-performance, or phononic-control claim is made by this repository at this stage.
