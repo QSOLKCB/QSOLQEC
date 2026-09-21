@@ -82,9 +82,7 @@ impl NumericalContract {
         }
     }
 
-    pub fn absolute_amplitude_f64(
-        tolerance: f64,
-    ) -> Result<Self, NumericalContractError> {
+    pub fn absolute_amplitude_f64(tolerance: f64) -> Result<Self, NumericalContractError> {
         if !tolerance.is_finite() || tolerance < 0.0 {
             return Err(NumericalContractError::InvalidTolerance { tolerance });
         }
@@ -368,7 +366,10 @@ impl fmt::Display for NumericalContractError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidTolerance { tolerance } => {
-                write!(f, "numerical tolerance must be finite and non-negative, got {tolerance}")
+                write!(
+                    f,
+                    "numerical tolerance must be finite and non-negative, got {tolerance}"
+                )
             }
         }
     }
@@ -523,7 +524,10 @@ mod tests {
             .unwrap()
             .receipt;
 
-        assert_ne!(first_receipt.before.sequence, second_receipt.before.sequence);
+        assert_ne!(
+            first_receipt.before.sequence,
+            second_receipt.before.sequence
+        );
         assert_eq!(first_receipt.artifact_id, second_receipt.artifact_id);
     }
 
