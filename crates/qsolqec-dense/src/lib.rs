@@ -10,7 +10,8 @@ use std::f64::consts::TAU;
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
 use qsolqec_glassbox::{
-    ApproximationDeclaration, ObservableState, RepresentationIdentity, SemanticHasher, StateSnapshot,
+    ApproximationDeclaration, ObservableState, RepresentationIdentity, SemanticHasher,
+    StateSnapshot,
 };
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
 use qsolqec_ops::{LocalUnitary, Operation, OperationValidationError};
