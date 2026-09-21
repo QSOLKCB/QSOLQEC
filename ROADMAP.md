@@ -18,7 +18,7 @@ Maturity is evidence metadata, not a quality score.
 
 ## R0 - Modular research foundation
 
-**PR #1**
+**Complete: PR #1**
 
 - Define the experimental scope and claim boundaries.
 - Establish QSOL-QEC-BRIDGE as the only intended QEC integration path.
@@ -34,11 +34,13 @@ No decoder, statevector, QEC code, GPU backend, or sonifier is implemented in R0
 
 - Complex dense state for `Q(d,n)`.
 - Explicit basis ordering.
-- Checked `d^n` allocation.
+- Checked `d^n` sizing and fallible allocation.
 - Norm calculation.
 - Basis-state construction.
+- Explicit amplitude construction without silent normalization.
 - Probability extraction.
-- Deterministic small-system fixtures for d=2, d=3, d=4.
+- Deterministic machine-checked fixtures for d=2, d=3, d=4.
+- Dense module descriptor at E2 deterministic-fixture maturity.
 
 The dense engine is a correctness oracle, not the scalability strategy.
 

@@ -1,0 +1,9 @@
+{
+  "schema": "qsolqec.dense-basis-fixture.v1",
+  "dimension": 2,
+  "subsystems": 2,
+  "digits": [1, 1],
+  "basis_index": 3,
+  "state_len": 4,
+  "probabilities": [0.0, 0.0, 0.0, 1.0]
+}

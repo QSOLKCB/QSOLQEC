@@ -105,7 +105,7 @@ QuditState -> Compressor -> EncodedState -> Decompressor -> QuditState
 
 The first runtime validates graph compatibility. It does not yet execute arbitrary pipelines.
 
-## 5. Q(d,n) model
+## 5. Q(d,n) model and basis ordering
 
 The first mathematical primitive is:
 
@@ -125,7 +125,15 @@ complex amplitudes.
 
 Initial dimensions of interest are d=2, d=3, and d=4, but the core type is intentionally general.
 
-Subsystem/basis ordering will be frozen by the dense-oracle PR, not silently assumed in the module API.
+R1 freezes subsystem 0 as the least-significant base-`d` digit. For digits `[q0,q1,...]`:
+
+```text
+index = q0 + q1*d + q2*d^2 + ...
+```
+
+The normative conversion helpers are `SystemSpec::basis_index` and `SystemSpec::basis_digits`.
+
+See [docs/QUDIT_DENSE_ORACLE.md](docs/QUDIT_DENSE_ORACLE.md).
 
 ## 6. Oracle separation
 
@@ -145,6 +153,8 @@ comparison
 ```
 
 If a candidate needs oracle intervention to produce its result, that must be a different experiment.
+
+The R1 dense oracle is intentionally exponential. Its purpose is reference truth on tractable systems, not scalability.
 
 ## 7. Numerical contracts
 
@@ -166,6 +176,8 @@ Numerical results may require a declared comparison such as:
 - relative tolerance;
 - fidelity;
 - distribution distance.
+
+The R1 dense oracle uses serial fixed-order `f64` accumulation for its norm reference. It does not silently normalize supplied amplitudes.
 
 An optimized CPU/GPU backend must not be declared incorrect merely because floating-point reduction order changes last-bit results, but neither may it choose its own acceptance rule after seeing the output.
 
@@ -232,9 +244,9 @@ Sonification and phononic control must not be conflated.
 
 ## 10. Dynamic loading
 
-The architecture is modular, but PR #1 does not use runtime-loaded shared libraries.
+The architecture is modular, but the initial implementation does not use runtime-loaded shared libraries.
 
-Initial modules should be ordinary Rust crates registered at compile time. Dynamic loading can be considered later if a concrete research need justifies the ABI and platform complexity.
+Initial modules are ordinary Rust crates registered at compile time. Dynamic loading can be considered later if a concrete research need justifies the ABI and platform complexity.
 
 ## 11. Experimental freedom
 
