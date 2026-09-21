@@ -10,7 +10,7 @@ use std::f64::consts::TAU;
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
 use qsolqec_glassbox::{
-    sha256_hex, ApproximationDeclaration, ObservableState, RepresentationIdentity, StateSnapshot,
+    ApproximationDeclaration, ObservableState, RepresentationIdentity, SemanticHasher, StateSnapshot,
 };
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
 use qsolqec_ops::{LocalUnitary, Operation, OperationValidationError};
@@ -331,15 +331,15 @@ impl DenseState {
 
 impl ObservableState for DenseState {
     fn observation_snapshot(&self) -> StateSnapshot {
-        let mut canonical = Vec::new();
-        canonical.extend_from_slice(b"qsolqec.dense-state.v1");
-        canonical.extend_from_slice(&(self.spec.dimension() as u128).to_be_bytes());
-        canonical.extend_from_slice(&(self.spec.subsystems() as u128).to_be_bytes());
-        canonical.push(1); // SubsystemZeroLeastSignificant
+        let mut hasher = SemanticHasher::new();
+        hasher.update(b"qsolqec.dense-state.v1");
+        hasher.update(&(self.spec.dimension() as u128).to_be_bytes());
+        hasher.update(&(self.spec.subsystems() as u128).to_be_bytes());
+        hasher.update(&[1]); // SubsystemZeroLeastSignificant
 
         for amplitude in &self.amplitudes {
-            canonical.extend_from_slice(&amplitude.re.to_bits().to_be_bytes());
-            canonical.extend_from_slice(&amplitude.im.to_bits().to_be_bytes());
+            hasher.update(&amplitude.re.to_bits().to_be_bytes());
+            hasher.update(&amplitude.im.to_bits().to_be_bytes());
         }
 
         StateSnapshot {
@@ -349,7 +349,7 @@ impl ObservableState for DenseState {
             },
             system: self.spec,
             approximation: ApproximationDeclaration::Exact,
-            state_digest: sha256_hex(&canonical),
+            state_digest: hasher.finalize_hex(),
             norm_squared: self.norm_squared(),
             logical_bytes: self.amplitudes.len() as u128 * std::mem::size_of::<Complex64>() as u128,
         }
