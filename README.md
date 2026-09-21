@@ -149,26 +149,36 @@ Likely module-level donors include:
 - QSOLKCB/QEC - replay, evidence, decoder-governance concepts;
 - QSOLKCB/SPECTRAL - spectral analysis experiments;
 - QSOLKCB/SONIFICATION - observation-to-audio experiments;
-- QSOLKCB/GALAXY - GPU compute experiments;
+- QSOLKCB/GALAXY - bounded tiling, logical-vs-resident scaling, and GPU compute experiments;
+- QSOLKCB/OPT - reusable optimization contracts for adaptive storage, tiling, reuse, incremental materialization, and coordination;
 - QSOLKCB/QSOL-MESH - distributed compute experiments;
 - QSOLKCB/QSOL-GEO-REASON, GLUBALL, UFT-ID-3.0, QSOLAI and others - experimental modules only when a bounded experiment justifies them.
 
 Import the useful contract or method, not an entire repository by default.
 
-## Initial roadmap
+## Roadmap
+
+The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The current sequence is:
 
 1. **R0 - Modular research foundation** - complete in PR #1.
 2. **R1 - Native qudit dense oracle** - complete in PR #2.
 3. **R2 - Generalized qudit operations** - complete in PR #3.
-4. **R3 - Glass Box events** - complete in PR #4.
-5. **R4 - First alternate representation** - prime-d stabilizer/tableau with explicit support and dense-oracle comparison.
-6. **R5 - Representation benchmark harness** - time, memory, fidelity, representation size.
-7. **R6 - Noise and QEC modules** - bounded error models and decoders.
-8. **R7 - Native ququart vs packed-qubit experiment**.
-9. **R8 - Sonification observer module**.
-10. **R9+ - Compute acceleration, experimental representations, and later AI observation**.
+4. **R3 - Glass Box** - complete in PR #4.
+5. **R4 - First alternate representation** - complete in PR #5; exact prime-d stabilizer/tableau.
+6. **R5 - Representation benchmark and memory-accounting harness** - next.
+7. **R6 - Structured logical-memory substrate contract**.
+8. **R7 - Fly-Phi664 structured memory prototype**.
+9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
+10. **R9 - Amplitude-memory-wall challenge**.
+11. **R10 - Noise and decoder modules**.
+12. **R11 - Flagship native-ququart experiment**.
+13. **R12 - Sonification observer**.
+14. **R13 - Compute acceleration**.
+15. **R14 - Additional experimental representations**.
+16. **R15 - AI observer**.
+17. **R16 - Bridge candidate**.
 
-See [ROADMAP.md](ROADMAP.md).
+If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source of truth**.
 
 ## Current status
 
