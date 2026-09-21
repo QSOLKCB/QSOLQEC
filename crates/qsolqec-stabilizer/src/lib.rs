@@ -417,11 +417,7 @@ mod tests {
             let mut exponent = generator.phase;
 
             for (subsystem, digit) in digits.iter_mut().enumerate() {
-                exponent = add_mod(
-                    exponent,
-                    mul_mod(generator.z[subsystem], *digit, d),
-                    d,
-                );
+                exponent = add_mod(exponent, mul_mod(generator.z[subsystem], *digit, d), d);
                 *digit = add_mod(*digit, generator.x[subsystem], d);
             }
 
