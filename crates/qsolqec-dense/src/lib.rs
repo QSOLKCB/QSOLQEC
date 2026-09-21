@@ -351,8 +351,7 @@ impl ObservableState for DenseState {
             approximation: ApproximationDeclaration::Exact,
             state_digest: sha256_hex(&canonical),
             norm_squared: self.norm_squared(),
-            logical_bytes: self.amplitudes.len() as u128
-                * std::mem::size_of::<Complex64>() as u128,
+            logical_bytes: self.amplitudes.len() as u128 * std::mem::size_of::<Complex64>() as u128,
         }
     }
 }
