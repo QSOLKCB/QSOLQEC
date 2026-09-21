@@ -258,10 +258,7 @@ fn hash_usize(hasher: &mut SemanticHasher, value: usize) {
     hasher.update(&(value as u128).to_be_bytes());
 }
 
-fn try_reserve_vector<T>(
-    elements: usize,
-    kind: &'static str,
-) -> Result<Vec<T>, StabilizerError> {
+fn try_reserve_vector<T>(elements: usize, kind: &'static str) -> Result<Vec<T>, StabilizerError> {
     elements
         .checked_mul(std::mem::size_of::<T>())
         .ok_or(StabilizerError::AllocationSizeOverflow { kind, elements })?;
