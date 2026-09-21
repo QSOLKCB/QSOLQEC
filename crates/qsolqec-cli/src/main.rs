@@ -1,13 +1,28 @@
 use qsolqec_core::SystemSpec;
 use qsolqec_dense::{module_descriptor as dense_descriptor, DenseState};
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
+use qsolqec_ops::Operation;
 use qsolqec_runtime::{ExperimentPlan, ModuleBinding, PipelineEdge};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let system = SystemSpec::new(4, 2)?;
-    let basis_digits = [3, 2];
-    let basis_index = system.basis_index(&basis_digits)?;
-    let state = DenseState::basis(system, basis_index)?;
+    let mut state = DenseState::zero(system)?;
+
+    state.apply_operations(&[
+        Operation::Fourier { target: 0 },
+        Operation::ControlledShift {
+            control: 0,
+            target: 1,
+            shift: 1,
+        },
+    ])?;
+
+    let nonzero: Vec<(usize, f64)> = state
+        .probabilities()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, probability)| *probability > 1.0e-12)
+        .collect();
 
     let plan = ExperimentPlan {
         modules: vec![
@@ -38,14 +53,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     plan.validate()?;
 
     println!(
-        "QSOLQEC R1: Q({}, {}) basis={:?}->{} amplitudes={} norm_squared={} p_basis={} plan=valid",
+        "QSOLQEC R2: Q({}, {}) F_4(0)+CS(0->1) norm_squared={} nonzero={nonzero:?} plan=valid",
         system.dimension(),
         system.subsystems(),
-        basis_digits,
-        basis_index,
-        state.amplitudes().len(),
-        state.norm_squared(),
-        state.basis_probability(basis_index)?
+        state.norm_squared()
     );
 
     Ok(())
