@@ -8,7 +8,8 @@ use core::fmt;
 
 use qsolqec_core::SystemSpec;
 use qsolqec_glassbox::{
-    ApproximationDeclaration, ObservableState, RepresentationIdentity, SemanticHasher, StateSnapshot,
+    ApproximationDeclaration, ObservableState, RepresentationIdentity, SemanticHasher,
+    StateSnapshot,
 };
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
 use qsolqec_ops::{Operation, OperationSupport, OperationValidationError};
@@ -103,16 +104,11 @@ impl PrimeStabilizerState {
 
     pub fn logical_bytes(&self) -> u128 {
         let scalars_per_generator = (2 * self.spec.subsystems() + 1) as u128;
-        self.generators.len() as u128
-            * scalars_per_generator
-            * std::mem::size_of::<usize>() as u128
+        self.generators.len() as u128 * scalars_per_generator * std::mem::size_of::<usize>() as u128
     }
 
     /// Report support without silently falling back to another representation.
-    pub fn support_for(
-        &self,
-        operation: &Operation,
-    ) -> Result<OperationSupport, StabilizerError> {
+    pub fn support_for(&self, operation: &Operation) -> Result<OperationSupport, StabilizerError> {
         operation
             .validate_for(self.spec)
             .map_err(StabilizerError::InvalidOperation)?;
@@ -166,12 +162,7 @@ impl PrimeStabilizerState {
         let d = self.spec.dimension();
         for left in 0..self.generators.len() {
             for right in (left + 1)..self.generators.len() {
-                if symplectic_product(
-                    &self.generators[left],
-                    &self.generators[right],
-                    d,
-                ) != 0
-                {
+                if symplectic_product(&self.generators[left], &self.generators[right], d) != 0 {
                     return false;
                 }
             }
@@ -195,8 +186,7 @@ impl PrimeStabilizerState {
                 Operation::Fourier { target } => {
                     let old_x = generator.x[*target];
                     let old_z = generator.z[*target];
-                    generator.phase =
-                        sub_mod(generator.phase, mul_mod(old_x, old_z, d), d);
+                    generator.phase = sub_mod(generator.phase, mul_mod(old_x, old_z, d), d);
                     generator.x[*target] = neg_mod(old_z, d);
                     generator.z[*target] = old_x;
                 }
@@ -209,16 +199,10 @@ impl PrimeStabilizerState {
                     let old_control_x = generator.x[*control];
                     let old_target_z = generator.z[*target];
 
-                    generator.x[*target] = add_mod(
-                        generator.x[*target],
-                        mul_mod(shift, old_control_x, d),
-                        d,
-                    );
-                    generator.z[*control] = sub_mod(
-                        generator.z[*control],
-                        mul_mod(shift, old_target_z, d),
-                        d,
-                    );
+                    generator.x[*target] =
+                        add_mod(generator.x[*target], mul_mod(shift, old_control_x, d), d);
+                    generator.z[*control] =
+                        sub_mod(generator.z[*control], mul_mod(shift, old_target_z, d), d);
                 }
                 Operation::Swap { a, b } => {
                     generator.x.swap(*a, *b);
@@ -321,11 +305,7 @@ fn mul_mod(a: usize, b: usize, modulus: usize) -> usize {
     ((a as u128 * b as u128) % modulus as u128) as usize
 }
 
-fn symplectic_product(
-    left: &PauliGenerator,
-    right: &PauliGenerator,
-    modulus: usize,
-) -> usize {
+fn symplectic_product(left: &PauliGenerator, right: &PauliGenerator, modulus: usize) -> usize {
     let mut product = 0usize;
     for index in 0..left.x.len() {
         product = add_mod(
@@ -427,14 +407,10 @@ mod tests {
 
     const EPSILON: f64 = 1.0e-10;
 
-    fn assert_generator_stabilizes_dense(
-        generator: &PauliGenerator,
-        dense: &DenseState,
-    ) {
+    fn assert_generator_stabilizes_dense(generator: &PauliGenerator, dense: &DenseState) {
         let spec = dense.spec();
         let d = spec.dimension();
-        let mut transformed =
-            vec![Complex64::new(0.0, 0.0); dense.amplitudes().len()];
+        let mut transformed = vec![Complex64::new(0.0, 0.0); dense.amplitudes().len()];
 
         for (source_index, amplitude) in dense.amplitudes().iter().copied().enumerate() {
             let mut digits = spec.basis_digits(source_index).unwrap();
@@ -446,21 +422,15 @@ mod tests {
                     mul_mod(generator.z[subsystem], digits[subsystem], d),
                     d,
                 );
-                digits[subsystem] =
-                    add_mod(digits[subsystem], generator.x[subsystem], d);
+                digits[subsystem] = add_mod(digits[subsystem], generator.x[subsystem], d);
             }
 
             let destination = spec.basis_index(&digits).unwrap();
-            let phase =
-                Complex64::from_polar(1.0, TAU * exponent as f64 / d as f64);
+            let phase = Complex64::from_polar(1.0, TAU * exponent as f64 / d as f64);
             transformed[destination] += amplitude * phase;
         }
 
-        for (index, (actual, expected)) in transformed
-            .iter()
-            .zip(dense.amplitudes())
-            .enumerate()
-        {
+        for (index, (actual, expected)) in transformed.iter().zip(dense.amplitudes()).enumerate() {
             assert!(
                 (*actual - *expected).norm() <= EPSILON,
                 "generator does not stabilize dense amplitude {index}: {actual:?} vs {expected:?}"
@@ -493,9 +463,7 @@ mod tests {
     #[test]
     fn supports_qubits_qutrits_and_higher_prime_dimensions() {
         for dimension in [2, 3, 5, 7] {
-            let state =
-                PrimeStabilizerState::zero(SystemSpec::new(dimension, 2).unwrap())
-                    .unwrap();
+            let state = PrimeStabilizerState::zero(SystemSpec::new(dimension, 2).unwrap()).unwrap();
             assert_eq!(state.generators().len(), 2);
             assert!(state.generators_commute());
         }
@@ -503,8 +471,7 @@ mod tests {
 
     #[test]
     fn reports_support_without_fallback() {
-        let state =
-            PrimeStabilizerState::zero(SystemSpec::new(3, 2).unwrap()).unwrap();
+        let state = PrimeStabilizerState::zero(SystemSpec::new(3, 2).unwrap()).unwrap();
 
         assert_eq!(
             state
@@ -553,8 +520,7 @@ mod tests {
     fn computational_basis_state_matches_dense_oracle() {
         let spec = SystemSpec::new(3, 2).unwrap();
         let stabilizer = PrimeStabilizerState::basis(spec, &[2, 1]).unwrap();
-        let dense =
-            DenseState::basis(spec, spec.basis_index(&[2, 1]).unwrap()).unwrap();
+        let dense = DenseState::basis(spec, spec.basis_index(&[2, 1]).unwrap()).unwrap();
 
         for generator in stabilizer.generators() {
             assert_generator_stabilizes_dense(generator, &dense);
@@ -592,8 +558,7 @@ mod tests {
         let spec = SystemSpec::new(2, 12).unwrap();
         let stabilizer = PrimeStabilizerState::zero(spec).unwrap();
         let dense_bytes =
-            spec.dense_state_len().unwrap() as u128
-                * std::mem::size_of::<Complex64>() as u128;
+            spec.dense_state_len().unwrap() as u128 * std::mem::size_of::<Complex64>() as u128;
 
         assert!(stabilizer.logical_bytes() < dense_bytes);
         assert_eq!(
