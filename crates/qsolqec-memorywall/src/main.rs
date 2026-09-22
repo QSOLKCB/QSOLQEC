@@ -1,11 +1,13 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use qsolqec_memorywall::{
-    probe_host, run_experiment, source_revision, source_revision_url, ExperimentSpec,
-    FlyBodyIdSource, HarnessError, MemoryWallReceipt, RepresentationKind, SweepChildFailure,
-    SweepReceipt, SWEEP_SCHEMA,
+    capture_process_memory_baseline, probe_host, run_experiment_with_baseline, source_revision,
+    source_revision_url, ExperimentSpec, FlyBodyIdSource, HarnessError, MemoryWallReceipt,
+    RepresentationKind, SweepChildFailure, SweepReceipt, SWEEP_SCHEMA,
 };
 
 fn main() -> ExitCode {
@@ -40,6 +42,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let baseline = capture_process_memory_baseline();
     let representation = parse_representation(required(args, "--representation")?)?;
     let dimension = parse_usize(required(args, "--dimension")?, "--dimension")?;
     let subsystems = parse_usize(required(args, "--subsystems")?, "--subsystems")?;
@@ -52,7 +55,7 @@ fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     configure_fly_spec(&mut spec, args)?;
 
-    let receipt = run_experiment(&spec)?;
+    let receipt = run_experiment_with_baseline(&spec, baseline)?;
     let output = option_value(args, "--output").map(PathBuf::from);
     emit_json(&receipt, output.as_deref())?;
     Ok(())
@@ -81,8 +84,9 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let oracle_limit_mib =
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
-    let fly_args = normalized_fly_child_args(args)?;
-    if !fly_args.is_empty() && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
+    let fly_args = FrozenFlyChildArgs::from_sweep_args(args)?;
+    if !fly_args.args.is_empty()
+        && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
     {
         return Err("Fly-specific options require fly-phi664 in --representations".into());
     }
@@ -114,7 +118,7 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 child_args.push(value.clone());
             }
             if *representation == RepresentationKind::FlyPhi664Virtualized {
-                child_args.extend(fly_args.iter().cloned());
+                child_args.extend(fly_args.args.iter().cloned());
             }
 
             let output = Command::new(&executable).args(&child_args).output()?;
@@ -285,15 +289,73 @@ fn configure_fly_spec(
     Ok(())
 }
 
-fn normalized_fly_child_args(args: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let mut output = Vec::new();
-    for flag in FLY_VALUE_FLAGS {
-        if let Some(value) = optional_value_once(args, flag)? {
-            output.push(flag.to_owned());
-            output.push(value.to_owned());
+struct FrozenFlyChildArgs {
+    args: Vec<String>,
+    frozen_body_ids_path: Option<PathBuf>,
+}
+
+impl FrozenFlyChildArgs {
+    fn from_sweep_args(args: &[String]) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut output = Vec::new();
+        let mut frozen_body_ids_path = None;
+
+        for flag in FLY_VALUE_FLAGS {
+            let Some(value) = optional_value_once(args, flag)? else {
+                continue;
+            };
+
+            if flag == "--fly-body-ids" {
+                let mut body_ids = parse_body_id_file(std::path::Path::new(value))?;
+                body_ids.sort_unstable();
+                let path = write_frozen_body_ids(&body_ids)?;
+                output.push(flag.to_owned());
+                output.push(path.to_string_lossy().into_owned());
+                frozen_body_ids_path = Some(path);
+            } else {
+                output.push(flag.to_owned());
+                output.push(value.to_owned());
+            }
+        }
+
+        Ok(Self {
+            args: output,
+            frozen_body_ids_path,
+        })
+    }
+}
+
+impl Drop for FrozenFlyChildArgs {
+    fn drop(&mut self) {
+        if let Some(path) = self.frozen_body_ids_path.take() {
+            let _ = fs::remove_file(path);
         }
     }
-    Ok(output)
+}
+
+fn write_frozen_body_ids(body_ids: &[u64]) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_nanos();
+
+    for attempt in 0..100u32 {
+        let path = std::env::temp_dir().join(format!(
+            "qsolqec-memorywall-frozen-bodyids-{}-{stamp}-{attempt}.txt",
+            std::process::id()
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                for body_id in body_ids {
+                    writeln!(file, "{body_id}")?;
+                }
+                file.sync_all()?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Err("unable to create frozen Fly body-ID snapshot".into())
 }
 
 fn optional_value_once<'a>(
