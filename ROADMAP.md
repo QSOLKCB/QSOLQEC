@@ -139,7 +139,7 @@ R4 establishes the first concrete example of an exponentially large dense state 
 
 ## R5 - Representation benchmark and memory-accounting harness
 
-**Implemented in PR #7 (pending merge)**
+**Complete: PR #7**
 
 R5 creates the measuring instrument required before more exotic representations are introduced.
 
@@ -210,6 +210,8 @@ No future representation should claim a memory or performance advantage outside 
 
 ## R6 - Structured logical-memory substrate contract
 
+**Implemented in the current R6 follow-on (pending merge)**
+
 R6 defines a representation-independent contract for very large logical address spaces whose complete contents do not need to be resident simultaneously.
 
 The primary distinction is:
@@ -254,6 +256,26 @@ Candidate logical address form:
 ```
 
 R6 is a storage contract. It is not yet a connectome-specific implementation.
+
+The R6 implementation supplies:
+
+- the `qsolqec-storage` contract crate;
+- stable geometry and source identities derived from canonical bytes;
+- geometry-bound packed logical addresses with fail-closed exhaustion checks;
+- checked mixed-radix helpers for deterministic address codecs;
+- bounded materialization windows that reject arithmetic wrap and range overflow;
+- explicit sparse/dense physical backing declarations;
+- deterministic tile ownership from tile span and owner count;
+- explicit persistence format/version boundaries;
+- exact versus named/contract-bounded approximate storage declarations;
+- payload identities independent of logical address identity;
+- a typed `ObservableStorage` / `StorageSnapshot` contract;
+- deterministic storage-observation artifact identity under schema `qsolqec.storage.observation.v1`;
+- deterministic fixtures for round-tripping, exhaustion, materialization bounds, ownership, payload/address separation, and observation identity.
+
+The contract deliberately contains no `SystemSpec`, norm, fidelity, or Glass Box `ObservableState` requirement. Those remain reserved for a later Q(d,n)-bound adapter.
+
+See `docs/STRUCTURED_STORAGE_CONTRACT.md`.
 
 ---
 
