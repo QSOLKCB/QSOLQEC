@@ -123,10 +123,13 @@ crates/
 ├── qsolqec-dense/        dense oracle + scalar operation execution
 ├── qsolqec-stabilizer/   R4 exact prime-d stabilizer/tableau candidate
 ├── qsolqec-memorywall/   R5 benchmark + memory-wall experiment runtime
+├── qsolqec-storage/      R6 neutral structured logical-storage contract
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
 R5 adds a provider-neutral memory-wall runtime that executes deterministic workloads through Dense and PrimeStabilizer, records logical representation bytes separately from process RSS, and emits machine-readable receipts suitable for repeated local/cloud experiments. Every benchmark receipt is built only from a clean Git checkout with the committed `Cargo.lock`, and its build-time SHA must be retrievable from the canonical public QSOLQEC repository before the executable is accepted.
+
+R6 adds a representation-neutral `qsolqec-storage` contract for large logical address spaces with checked geometry-bound packed addresses, bounded materialization windows, sparse/dense backing declarations, deterministic tile ownership, explicit persistence versions, exact/approximate storage declarations, and a typed `ObservableStorage` snapshot that is deliberately separate from Glass Box quantum-state observation.
 
 See:
 
@@ -135,6 +138,7 @@ See:
 - [docs/GLASS_BOX.md](docs/GLASS_BOX.md)
 - [docs/PRIME_STABILIZER.md](docs/PRIME_STABILIZER.md)
 - [docs/MEMORY_WALL_RUNTIME.md](docs/MEMORY_WALL_RUNTIME.md)
+- [docs/STRUCTURED_STORAGE_CONTRACT.md](docs/STRUCTURED_STORAGE_CONTRACT.md)
 
 ## Historical inspiration
 
@@ -168,7 +172,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 4. **R3 - Glass Box** - complete in PR #4.
 5. **R4 - First alternate representation** - complete in PR #5; exact prime-d stabilizer/tableau.
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
-7. **R6 - Structured logical-memory substrate contract**.
+7. **R6 - Structured logical-memory substrate contract** - implemented in the current R6 follow-on.
 8. **R7 - Fly-Phi664 structured memory prototype**.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
 10. **R9 - Amplitude-memory-wall challenge**.
@@ -184,6 +188,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R5: memory-wall benchmark runtime (PR #7).**
+**R6: structured logical-memory substrate contract.**
 
-The project now has a deterministic measurement harness for Dense and PrimeStabilizer that separates experiment identity from host identity and logical representation size from process RSS. R6 remains the next roadmap rung after R5 merges.
+The project now has a deterministic, representation-neutral storage contract that keeps geometry/address identity, payload identity, materialized payload, resident working-set bytes, and process RSS conceptually separate. `ObservableStorage` does not carry `SystemSpec`, norm, fidelity, or other quantum-state semantics. R7 Fly-Phi664 is the next roadmap rung.
