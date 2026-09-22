@@ -890,38 +890,40 @@ fn run_fly_virtualized(
     let virtualization = spec.fly.virtualization_config()?;
 
     let construction_start = Instant::now();
-    let codec = match Phi664Codec::from_body_ids(
-        MacroSourceSpec::male_cns_v1(),
-        spec.fly.body_ids.clone(),
-    ) {
-        Ok(codec) => codec,
-        Err(error) => {
-            return failed_receipt(
-                spec,
-                workload,
-                operation_support,
-                experiment_id,
-                host,
-                revision,
-                revision_url,
-                estimated_logical_bytes,
-                rss_before_bytes,
-                peak_before_bytes,
-                FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
-                RunOutcome::ExecutionFailed {
-                    reason: format!("Fly-Phi664 macrograph construction failed: {error}"),
-                },
-            );
-        }
-    };
+    let codec =
+        match Phi664Codec::from_body_ids(MacroSourceSpec::male_cns_v1(), spec.fly.body_ids.clone())
+        {
+            Ok(codec) => codec,
+            Err(error) => {
+                return failed_receipt(
+                    spec,
+                    workload,
+                    operation_support,
+                    experiment_id,
+                    host,
+                    revision,
+                    revision_url,
+                    estimated_logical_bytes,
+                    rss_before_bytes,
+                    peak_before_bytes,
+                    FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
+                    RunOutcome::ExecutionFailed {
+                        reason: format!("Fly-Phi664 macrograph construction failed: {error}"),
+                    },
+                );
+            }
+        };
 
-    let macro_node_count = u64::try_from(codec.manifest().macro_node_count())
-        .map_err(|_| HarnessError::InvalidSpec("macro-node count exceeds u64 receipt range".into()))?;
+    let macro_node_count = u64::try_from(codec.manifest().macro_node_count()).map_err(|_| {
+        HarnessError::InvalidSpec("macro-node count exceeds u64 receipt range".into())
+    })?;
     let body_ids_digest = codec.manifest().body_ids_digest().to_owned();
     let source_identity_digest = codec.manifest().source_identity().digest().to_owned();
     let geometry_digest = codec.geometry().digest().to_owned();
     let logical_namespace_addresses = u64::try_from(codec.geometry().logical_address_count())
-        .map_err(|_| HarnessError::InvalidSpec("logical namespace exceeds u64 receipt range".into()))?;
+        .map_err(|_| {
+            HarnessError::InvalidSpec("logical namespace exceeds u64 receipt range".into())
+        })?;
 
     let mut state = match VirtualFlyQdnState::zero(codec, system, virtualization) {
         Ok(state) => state,
@@ -1004,7 +1006,9 @@ fn run_fly_virtualized(
     let rss_after = linux_current_rss_bytes();
 
     let materialized_address_count = u64::try_from(storage.facts().materialized_address_count)
-        .map_err(|_| HarnessError::Serialization("materialized address count exceeds u64".into()))?;
+        .map_err(|_| {
+            HarnessError::Serialization("materialized address count exceeds u64".into())
+        })?;
     let materialized_payload_bytes = u64::try_from(storage.facts().materialized_payload_bytes)
         .map_err(|_| HarnessError::Serialization("materialized payload bytes exceed u64".into()))?;
     let materialized_page_count = u64::try_from(state.materialized_page_count())
