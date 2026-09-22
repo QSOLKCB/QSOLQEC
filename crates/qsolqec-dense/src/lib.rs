@@ -14,7 +14,7 @@ use qsolqec_glassbox::{
     StateSnapshot,
 };
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
-use qsolqec_ops::{LocalUnitary, Operation, OperationValidationError};
+use qsolqec_ops::{LocalUnitary, Operation, OperationSupport, OperationValidationError};
 
 /// Dense reference state for Q(d,n).
 #[derive(Debug, Clone, PartialEq)]
