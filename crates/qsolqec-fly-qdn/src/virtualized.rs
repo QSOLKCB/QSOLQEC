@@ -2075,10 +2075,7 @@ mod tests {
     #[test]
     fn non_finite_operation_output_fails_atomically_like_gate_a() {
         let spec = SystemSpec::new(2, 1).unwrap();
-        let amplitudes = vec![
-            Complex64::new(f64::MAX, 0.0),
-            Complex64::new(f64::MAX, 0.0),
-        ];
+        let amplitudes = vec![Complex64::new(f64::MAX, 0.0), Complex64::new(f64::MAX, 0.0)];
         let operation = Operation::Fourier { target: 0 };
 
         let mut gate_a =
