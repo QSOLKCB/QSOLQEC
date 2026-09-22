@@ -589,7 +589,7 @@ fn validate_digest(digest: &str, field: &'static str) -> Result<(), StorageContr
     if hex.len() != 64
         || !hex
             .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
     {
         return Err(StorageContractError::InvalidDigest { field });
     }
@@ -773,7 +773,7 @@ mod tests {
             "fixture-grid",
             version,
             logical_address_count,
-            b"axes=fixture;axis0-most-significant",
+            b"axes=2,3,4;axis0-most-significant",
         )
         .unwrap()
     }
