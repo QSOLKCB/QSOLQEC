@@ -31,7 +31,7 @@ logical address identity
 payload identity
 ```
 
-`StorageGeometryIdentity` hashes a named/versioned canonical geometry description.
+`StorageGeometryIdentity` hashes a named/versioned canonical geometry description **together with its total logical address count**. Namespace size is therefore part of immutable geometry identity rather than a caller-supplied parameter.
 
 `PackedAddress` binds a checked numeric logical index to that geometry digest. The same numeric index under a different geometry is therefore a different address.
 
@@ -45,13 +45,12 @@ Geometry implementations use the `LogicalAddressCodec` trait.
 
 They must provide:
 
-- immutable geometry identity;
-- total logical address count;
+- immutable geometry identity that already binds the total logical address count;
 - deterministic structured-address to packed-address conversion;
 - deterministic packed-address to structured-address conversion;
 - checked failure rather than wrap or live-address reuse.
 
-R6 provides checked mixed-radix helpers for simple geometries. Axis 0 is explicitly the most-significant axis. Fly-Phi664 is free to implement a different codec because its fibre geometry is not required to be a single rectangular radix product.
+R6 provides checked mixed-radix helpers for simple geometries. Axis 0 is explicitly the most-significant axis. Packing first validates that the **entire radix product** is representable, so no coordinate-dependent prefix of an overflowing namespace can be accepted. Fly-Phi664 is free to implement a different codec because its fibre geometry is not required to be a single rectangular radix product.
 
 ## Materialization
 
@@ -128,7 +127,7 @@ Its `StorageSnapshot` reports:
 qsolqec.storage.observation.v1
 ```
 
-and a deterministic SHA-256 artifact identity over those semantic fields.
+and a deterministic SHA-256 artifact identity over those semantic fields. Externally supplied storage digests must use canonical lowercase `sha256:` hexadecimal form; alternate hex casing is rejected rather than producing a second artifact identity for the same digest value.
 
 The observation contains no wall-clock value and no quantum-state fields.
 
