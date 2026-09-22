@@ -460,7 +460,7 @@ This is deliberately a full-reconstruction baseline. It does not claim a memory-
 
 ### Gate B - GALAXY/OPT virtualized materialization
 
-**Implemented in PR #11 (pending merge).**
+**Complete: PR #11.**
 
 The R8B implementation is an exact optimization layer over Gate A. It does not change the Q(d,n) model, basis ordering, amplitude codec, semantic digest domain, or supported-operation semantics.
 
@@ -604,6 +604,8 @@ All OPT mechanisms are imported as **patterns and contracts**, not universal par
 
 ## R9 - Amplitude-memory-wall challenge
 
+**Implemented in PR #12 (pending merge).**
+
 R9 turns the storage work into a bounded scientific experiment.
 
 Compare:
@@ -655,6 +657,25 @@ Evidence beyond the dense limit may use independently testable constraints such 
 Claims must narrow as oracle coverage disappears.
 
 A negative result is valid: if Fly-Phi664 merely relocates exponential information, or runtime/precision explodes instead of memory, record that result.
+
+The R9 implementation extends the R5 memory-wall runtime with `fly-phi664` and receipt schema `qsolqec.memorywall.receipt.v2`. It supplies:
+
+- the same deterministic Clifford-ring workload used by Dense and PrimeStabilizer;
+- fresh-process execution for every sweep point so Linux VmHWM remains point-scoped;
+- a tiny built-in real-bodyId MaleCNS fixture for CI/conformance plus `--fly-body-ids` for larger exact source memberships;
+- experiment identity bound to canonical body-ID membership and all declared virtualization settings;
+- exact logical Q(d,n) byte accounting, without pretending sparse materialization removes the exponential logical state;
+- exact Phi664 logical-namespace size and structured namespace-exhaustion outcomes;
+- materialized address and adaptive-page counts;
+- tracked state bytes, worker-local scratch capacity, and R8B active-state-plus-scratch high-water evidence;
+- Linux process RSS and VmHWM frozen before Dense verification;
+- cache hit/miss, invariant reuse, recomputed/reused generation, dispatch, scan/skip, and Fourier prune counters;
+- exact Dense amplitude comparison at tolerance 0.0 where the configured oracle limit permits;
+- explicit oracle-unavailable evidence beyond that limit;
+- terminal child-failure preservation in sweeps;
+- no approximation path and no universal memory/performance claim.
+
+See `docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md`.
 
 ---
 
