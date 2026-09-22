@@ -141,7 +141,7 @@ jobs:
               echo "${flag} without a value unexpectedly succeeded"
               exit 1
             fi
-            grep -q "${flag} requires an integer MiB value" /tmp/memorywall-missing-value.err
+            grep -q -- "${flag} requires an integer MiB value" /tmp/memorywall-missing-value.err
           done
 
       - name: Memory-wall smoke
