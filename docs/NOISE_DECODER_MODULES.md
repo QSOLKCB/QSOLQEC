@@ -267,6 +267,8 @@ the complete correctable corpus, subject to an explicit case budget.
 
 The comparison records:
 
+- reference decoder ID and version;
+- candidate decoder ID and version;
 - total cases;
 - matching corrections;
 - mismatches;
@@ -274,6 +276,10 @@ The comparison records:
 - candidate failures;
 - first mismatch syndrome digest;
 - deterministic comparison digest.
+
+Both decoder IDs **and versions** are committed into the comparison digest. A
+comparison produced by `candidate@v1` therefore cannot share evidence identity
+with otherwise identical output from `candidate@v2`.
 
 Comparison is observational.
 
