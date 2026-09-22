@@ -21,6 +21,8 @@ fn main() {
         panic!("Git HEAD is not a full 40-hex commit SHA: {revision:?}");
     }
 
+    verify_public_revision(&revision);
+
     println!("cargo:rustc-env=QSOLQEC_BUILD_SOURCE_SHA={revision}");
 }
 
@@ -50,6 +52,31 @@ fn emit_git_rerun_guards(root: &Path) {
         println!(
             "cargo:rerun-if-changed={}",
             git_dir.join(symbolic_ref).display()
+        );
+    }
+}
+
+fn verify_public_revision(revision: &str) {
+    const PUBLIC_REPOSITORY: &str = "https://github.com/QSOLKCB/QSOLQEC.git";
+
+    let status = Command::new("git")
+        .args([
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-write-fetch-head",
+            PUBLIC_REPOSITORY,
+            revision,
+        ])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .status()
+        .unwrap_or_else(|error| {
+            panic!("cannot invoke Git to verify public QSOLQEC revision {revision}: {error}")
+        });
+
+    if !status.success() {
+        panic!(
+            "refusing memory-wall benchmark build because revision {revision} is not retrievable from {PUBLIC_REPOSITORY}"
         );
     }
 }
