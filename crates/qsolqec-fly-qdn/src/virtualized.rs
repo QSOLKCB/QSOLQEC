@@ -837,6 +837,7 @@ pub struct VirtualizationMetrics {
     pub cache_hits: u64,
     pub cache_misses: u64,
     pub invariant_reuses: u64,
+    pub peak_retained_cache_states: u64,
     pub worker_dispatches: u64,
     pub addresses_scanned: u128,
     pub addresses_soundly_skipped: u128,
@@ -1000,8 +1001,10 @@ impl VirtualExecutor {
         }
 
         let mut candidate = state.clone();
-        let mut pending = Vec::new();
+        let mut pending = BTreeMap::<String, Arc<VirtualFlyQdnState>>::new();
+        let mut pending_order = VecDeque::new();
         self.observe_tracked_active(&candidate);
+        self.observe_retained_cache_states(pending.len());
 
         for operation in operations {
             if operation_is_bitwise_identity(candidate.spec, operation) {
@@ -1012,7 +1015,10 @@ impl VirtualExecutor {
             }
 
             let signature = operation_signature(&candidate, operation);
-            if let Some(cached) = self.state_cache.get(&signature) {
+            if let Some(cached) = pending
+                .get(&signature)
+                .or_else(|| self.state_cache.get(&signature))
+            {
                 candidate = cached.as_ref().clone();
                 self.observe_tracked_active(&candidate);
                 self.metrics.cache_hits = self.metrics.cache_hits.saturating_add(1);
@@ -1023,20 +1029,38 @@ impl VirtualExecutor {
 
             self.metrics.cache_misses = self.metrics.cache_misses.saturating_add(1);
             let next = self.apply_fresh(&candidate, operation)?;
-            pending.push((signature, Arc::new(next.clone())));
+
+            if self.state_cache.len().saturating_add(pending.len())
+                < self.config.max_cached_states
+            {
+                pending_order.push_back(signature.clone());
+                pending.insert(signature, Arc::new(next.clone()));
+                self.observe_retained_cache_states(pending.len());
+            }
+
             candidate = next;
             self.observe_tracked_active(&candidate);
             self.metrics.operations_executed = self.metrics.operations_executed.saturating_add(1);
         }
 
-        // Publish reusable generations only after the entire requested sequence
-        // has succeeded. A failed partial sequence never blesses its candidates.
-        for (signature, cached) in pending {
-            self.publish_cache(signature, cached);
+        // Publish only bounded staged generations after the entire requested
+        // sequence succeeds. Failed work never becomes reusable, and committed
+        // plus staged cache states never exceed max_cached_states.
+        for signature in pending_order {
+            if let Some(cached) = pending.remove(&signature) {
+                self.publish_cache(signature, cached);
+            }
         }
 
         *state = candidate;
         Ok(())
+    }
+
+    fn observe_retained_cache_states(&mut self, pending_len: usize) {
+        let retained = self.state_cache.len().saturating_add(pending_len);
+        let retained = u64::try_from(retained).unwrap_or(u64::MAX);
+        self.metrics.peak_retained_cache_states =
+            self.metrics.peak_retained_cache_states.max(retained);
     }
 
     fn observe_tracked_active(&mut self, state: &VirtualFlyQdnState) {
