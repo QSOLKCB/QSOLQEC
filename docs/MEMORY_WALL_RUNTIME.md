@@ -80,16 +80,18 @@ R5 enforces the invariant:
 
 > **Every benchmark receipt must bind to the exact source revision used to build the executable, with a public locator that an independent reproducer can retrieve.**
 
-The memory-wall crate's build script resolves the Git commit SHA while the binary is built and embeds that 40-hex revision into the executable. Runtime working-directory Git state is never used as benchmark provenance.
+The memory-wall crate's build script requires a **clean Git checkout**, resolves the Git commit SHA while the binary is built, and embeds that 40-hex revision into the executable. Runtime working-directory Git state is never used as benchmark provenance.
+
+The build script fails closed when tracked or relevant untracked source changes are present. It also registers the tracked repository files plus Git HEAD/ref/index metadata as Cargo rerun inputs, so reusing one target directory across commit A -> commit B forces provenance resolution to run again.
 
 Receipts expose both:
 
 - `source_revision`;
 - `source_revision_url`, pointing at the corresponding public QSOLQEC commit.
 
-When building from a source archive without `.git`, set `QSOLQEC_SOURCE_SHA` **at build time** to the exact public 40-hex commit SHA. The build fails closed if no valid source revision can be established.
+Source-archive builds without Git metadata are deliberately rejected for benchmark receipts because the runtime cannot prove that arbitrary archive bytes match the claimed public commit.
 
-A runtime environment variable cannot relabel an already-built executable.
+An already-built executable cannot be relabeled by changing its runtime environment.
 
 ## Experiment identity
 
@@ -204,7 +206,7 @@ For a remote Linux host:
     cargo run --release -q -p qsolqec-memorywall -- probe
     cargo run --release -q -p qsolqec-memorywall -- sweep ...
 
-For a source archive without Git metadata, set `QSOLQEC_SOURCE_SHA` while **building** the binary. Once built, provenance is immutable inside that executable.
+Benchmark binaries must be built from the clean public Git checkout. This keeps the embedded source identity independently retrievable and prevents source archives or dirty worktrees from being mislabeled as a public commit.
 
 ## NVIDIA metadata
 
