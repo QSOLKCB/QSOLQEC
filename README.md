@@ -177,7 +177,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 5. **R4 - First alternate representation** - complete in PR #5; exact prime-d stabilizer/tableau.
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
-8. **R7 - Fly-Phi664 structured memory prototype** - implemented in the current R7 follow-on.
+8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
 10. **R9 - Amplitude-memory-wall challenge**.
 11. **R10 - Noise and decoder modules**.
@@ -192,6 +192,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R7: Fly-Phi664 structured memory prototype.**
+**R7: Fly-Phi664 structured memory prototype (PR #9).**
 
 The project now has a concrete R6 storage substrate with MaleCNS v1.0 source binding, exact `bodyId` macro-node identity, a 664-position disjoint fibre bundle per macro node, sparse payload backing, bounded materialization, and deterministic storage observations. The historical 166,691 planning count is not used as an allocation authority; the exact supplied and hashed node set defines each store. R8 Q(d,n) binding is the next roadmap rung.
