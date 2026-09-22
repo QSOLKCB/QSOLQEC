@@ -1211,6 +1211,86 @@ mod tests {
     }
 
     #[test]
+    fn receipts_bind_to_build_source_revision_and_public_locator() {
+        let revision = source_revision();
+        assert_eq!(revision.len(), 40);
+        assert!(revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(
+            source_revision_url(),
+            format!("{SOURCE_REPOSITORY}/commit/{revision}")
+        );
+    }
+
+    #[test]
+    fn successful_receipts_record_exact_operation_support() {
+        let dense = run_experiment(&ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1))
+            .unwrap();
+        assert_eq!(dense.body.operation_support, OperationSupportClass::Exact);
+
+        let stabilizer = run_experiment(&ExperimentSpec::new(
+            RepresentationKind::PrimeStabilizer,
+            3,
+            2,
+            1,
+        ))
+        .unwrap();
+        assert_eq!(
+            stabilizer.body.operation_support,
+            OperationSupportClass::Exact
+        );
+    }
+
+    #[test]
+    fn unsupported_receipt_records_unsupported_operation_support() {
+        let receipt = run_experiment(&ExperimentSpec::new(
+            RepresentationKind::PrimeStabilizer,
+            4,
+            2,
+            1,
+        ))
+        .unwrap();
+        assert_eq!(
+            receipt.body.operation_support,
+            OperationSupportClass::Unsupported
+        );
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::Unsupported { .. }
+        ));
+    }
+
+    #[test]
+    fn post_materialization_failure_receipt_preserves_wall_measurements() {
+        let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 3, 1);
+        let system = spec.system().unwrap();
+        let operations = workload_operations(system, spec.rounds).unwrap();
+        let workload = workload_identity(system, spec.rounds, &operations);
+        let receipt = failed_receipt(
+            &spec,
+            workload,
+            OperationSupportClass::Exact,
+            "test-experiment".into(),
+            probe_host(),
+            source_revision(),
+            source_revision_url(),
+            Some(128),
+            linux_current_rss_bytes(),
+            linux_peak_rss_bytes(),
+            FailureEvidence::materialized(11, Some(22), Some(128)),
+            RunOutcome::AllocationFailed {
+                reason: "synthetic post-construction failure".into(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(receipt.body.memory.logical_bytes, Some(128));
+        assert_eq!(receipt.body.memory.materialized_payload_bytes, Some(128));
+        assert_eq!(receipt.body.memory.materialization_count, Some(1));
+        assert_eq!(receipt.body.timings.construction_ns, Some(11));
+        assert_eq!(receipt.body.timings.execution_ns, Some(22));
+    }
+
+    #[test]
     fn receipt_round_trips_json() {
         let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
         let receipt = run_experiment(&spec).unwrap();
