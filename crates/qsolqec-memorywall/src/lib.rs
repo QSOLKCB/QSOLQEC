@@ -22,7 +22,9 @@ pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v1";
 pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v1";
 pub const HOST_SCHEMA: &str = "qsolqec.memorywall.host.v1";
 pub const WORKLOAD_SCHEMA: &str = "qsolqec.memorywall.clifford-ring.v1";
+pub const SOURCE_REPOSITORY: &str = "https://github.com/QSOLKCB/QSOLQEC";
 pub const DEFAULT_ORACLE_LOGICAL_LIMIT_BYTES: u64 = 16 * 1024 * 1024;
+const BUILD_SOURCE_SHA: &str = env!("QSOLQEC_BUILD_SOURCE_SHA");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -136,6 +138,24 @@ pub struct MemoryMeasurements {
     pub materialization_count: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OperationSupportClass {
+    Exact,
+    Approximate,
+    Unsupported,
+}
+
+impl From<OperationSupport> for OperationSupportClass {
+    fn from(value: OperationSupport) -> Self {
+        match value {
+            OperationSupport::Exact => Self::Exact,
+            OperationSupport::Approximate => Self::Approximate,
+            OperationSupport::Unsupported => Self::Unsupported,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum OracleAgreement {
@@ -178,6 +198,7 @@ impl RunOutcome {
 pub struct ReceiptBody {
     pub experiment_id: String,
     pub source_revision: String,
+    pub source_revision_url: String,
     pub representation: RepresentationKind,
     pub representation_id: String,
     pub compute_backend: String,
@@ -186,6 +207,7 @@ pub struct ReceiptBody {
     pub subsystems: usize,
     pub rounds: usize,
     pub workload: WorkloadIdentity,
+    pub operation_support: OperationSupportClass,
     pub host: HostInfo,
     pub memory: MemoryMeasurements,
     pub timings: TimingMeasurements,
@@ -202,10 +224,22 @@ pub struct MemoryWallReceipt {
     pub body: ReceiptBody,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SweepChildFailure {
+    pub representation: RepresentationKind,
+    pub dimension: usize,
+    pub subsystems: usize,
+    pub rounds: usize,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub stderr: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SweepReceipt {
     pub schema: String,
     pub source_revision: String,
+    pub source_revision_url: String,
     pub dimension: usize,
     pub start_n: usize,
     pub end_n: usize,
@@ -213,6 +247,7 @@ pub struct SweepReceipt {
     pub rounds: usize,
     pub representations: Vec<RepresentationKind>,
     pub points: Vec<MemoryWallReceipt>,
+    pub child_failures: Vec<SweepChildFailure>,
 }
 
 #[derive(Debug)]
@@ -257,24 +292,11 @@ pub fn probe_host() -> HostInfo {
 }
 
 pub fn source_revision() -> String {
-    if let Ok(value) = std::env::var("QSOLQEC_SOURCE_SHA") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_owned();
-        }
-    }
+    BUILD_SOURCE_SHA.to_owned()
+}
 
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success());
-
-    output
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".into())
+pub fn source_revision_url() -> String {
+    format!("{SOURCE_REPOSITORY}/commit/{BUILD_SOURCE_SHA}")
 }
 
 pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, HarnessError> {
