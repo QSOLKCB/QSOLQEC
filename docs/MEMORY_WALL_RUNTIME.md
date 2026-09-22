@@ -82,7 +82,9 @@ R5 enforces the invariant:
 
 The memory-wall crate's build script requires a **clean Git checkout**, resolves the Git commit SHA while the binary is built, and embeds that 40-hex revision into the executable. Runtime working-directory Git state is never used as benchmark provenance.
 
-The build script fails closed when tracked or relevant untracked source changes are present. It also registers the tracked repository files plus Git HEAD/ref/index metadata as Cargo rerun inputs, so reusing one target directory across commit A -> commit B forces provenance resolution to run again.
+The build script fails closed on **any dirty checkout**, including untracked files. The workspace `Cargo.lock` is committed and benchmark builds use `--locked`, so dependency versions are part of the retrievable source identity rather than an untracked local input.
+
+The build script also registers the tracked repository files plus Git HEAD/ref/index metadata as Cargo rerun inputs, so reusing one target directory across commit A -> commit B forces provenance resolution to run again. Before embedding the SHA, it performs a public Git fetch of that exact revision from `https://github.com/QSOLKCB/QSOLQEC.git`; a clean local-only or fork-only commit is rejected if the canonical public repository cannot serve it.
 
 Receipts expose both:
 
@@ -105,6 +107,8 @@ The experiment identity binds:
 - logical-memory budget;
 - dense-oracle logical limit;
 - compute backend.
+
+Those resource limits are also serialized directly into every receipt as `max_logical_bytes` and `oracle_logical_limit_bytes`; consumers never have to reverse-engineer them from the opaque experiment hash.
 
 Host identity is deliberately separate, so the same experiment can be executed on different machines.
 
@@ -129,7 +133,7 @@ If Dense is too large or cannot be constructed, oracle agreement is recorded as 
 
 Example:
 
-    cargo run -q -p qsolqec-memorywall -- run \
+    cargo run --locked -q -p qsolqec-memorywall -- run \
       --representation dense \
       --dimension 2 \
       --subsystems 24 \
@@ -144,11 +148,11 @@ This is not yet a hard operating-system RSS cgroup/rlimit. R5 records process RS
 
 Probe the host:
 
-    cargo run -q -p qsolqec-memorywall -- probe
+    cargo run --locked -q -p qsolqec-memorywall -- probe
 
 Run one dense point:
 
-    cargo run -q -p qsolqec-memorywall -- run \
+    cargo run --locked -q -p qsolqec-memorywall -- run \
       --representation dense \
       --dimension 2 \
       --subsystems 16 \
@@ -157,7 +161,7 @@ Run one dense point:
 
 Run the same workload through the stabilizer representation:
 
-    cargo run -q -p qsolqec-memorywall -- run \
+    cargo run --locked -q -p qsolqec-memorywall -- run \
       --representation stabilizer \
       --dimension 2 \
       --subsystems 16 \
@@ -166,7 +170,7 @@ Run the same workload through the stabilizer representation:
 
 Sweep both representations:
 
-    cargo run -q -p qsolqec-memorywall -- sweep \
+    cargo run --locked -q -p qsolqec-memorywall -- sweep \
       --representations dense,stabilizer \
       --dimension 2 \
       --start-n 4 \
@@ -203,8 +207,8 @@ For a remote Linux host:
     cd QSOLQEC
     git checkout <exact-sha>
 
-    cargo run --release -q -p qsolqec-memorywall -- probe
-    cargo run --release -q -p qsolqec-memorywall -- sweep ...
+    cargo run --release --locked -q -p qsolqec-memorywall -- probe
+    cargo run --release --locked -q -p qsolqec-memorywall -- sweep ...
 
 Benchmark binaries must be built from the clean public Git checkout. This keeps the embedded source identity independently retrievable and prevents source archives or dirty worktrees from being mislabeled as a public commit.
 
