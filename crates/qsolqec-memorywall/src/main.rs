@@ -333,9 +333,7 @@ impl Drop for FrozenFlyChildArgs {
 }
 
 fn write_frozen_body_ids(body_ids: &[u64]) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_nanos();
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
 
     for attempt in 0..100u32 {
         let path = std::env::temp_dir().join(format!(
@@ -576,7 +574,10 @@ mod tests {
         fs::write(&original, "12781\n556329\n999999\n").unwrap();
 
         assert_ne!(frozen_path, original);
-        assert_eq!(parse_body_id_file(&frozen_path).unwrap(), vec![12781, 556329]);
+        assert_eq!(
+            parse_body_id_file(&frozen_path).unwrap(),
+            vec![12781, 556329]
+        );
         assert!(frozen
             .args
             .windows(2)
