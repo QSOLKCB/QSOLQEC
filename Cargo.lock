@@ -137,6 +137,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "qsolqec-fly-phi664"
+version = "0.1.0"
+dependencies = [
+ "qsolqec-storage",
+]
+
+[[package]]
 name = "qsolqec-glassbox"
 version = "0.1.0"
 dependencies = [
