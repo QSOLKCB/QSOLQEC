@@ -367,10 +367,7 @@ pub struct PersistenceBoundary {
 }
 
 impl PersistenceBoundary {
-    pub fn new(
-        format: impl Into<String>,
-        version: u32,
-    ) -> Result<Self, StorageContractError> {
+    pub fn new(format: impl Into<String>, version: u32) -> Result<Self, StorageContractError> {
         let format = nonempty(format.into(), "persistence format")?;
         if version == 0 {
             return Err(StorageContractError::ZeroPersistenceVersion);
@@ -429,10 +426,7 @@ impl TileOwnershipPolicy {
         self.owner_count
     }
 
-    pub fn owner_of(
-        &self,
-        address: &PackedAddress,
-    ) -> Result<TileOwnership, StorageContractError> {
+    pub fn owner_of(&self, address: &PackedAddress) -> Result<TileOwnership, StorageContractError> {
         if address.geometry_digest != self.geometry_digest {
             return Err(StorageContractError::GeometryMismatch);
         }
@@ -561,10 +555,7 @@ fn nonempty(value: String, field: &'static str) -> Result<String, StorageContrac
     Ok(value)
 }
 
-fn validate_digest(
-    digest: &str,
-    field: &'static str,
-) -> Result<(), StorageContractError> {
+fn validate_digest(digest: &str, field: &'static str) -> Result<(), StorageContractError> {
     let Some(hex) = digest.strip_prefix("sha256:") else {
         return Err(StorageContractError::InvalidDigest { field });
     };
@@ -735,12 +726,8 @@ mod tests {
     }
 
     fn source() -> StorageSourceIdentity {
-        StorageSourceIdentity::from_canonical_bytes(
-            "synthetic-fixture",
-            "1",
-            b"source-fixture-v1",
-        )
-        .unwrap()
+        StorageSourceIdentity::from_canonical_bytes("synthetic-fixture", "1", b"source-fixture-v1")
+            .unwrap()
     }
 
     fn snapshot(materialized_address_count: u128) -> StorageSnapshot {
