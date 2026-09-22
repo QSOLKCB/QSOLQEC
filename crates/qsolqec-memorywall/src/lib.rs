@@ -444,11 +444,14 @@ pub fn source_revision_url() -> String {
 }
 
 pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, HarnessError> {
-    run_experiment_with_baseline(spec, capture_process_memory_baseline())
+    let host = probe_host();
+    let baseline = capture_process_memory_baseline();
+    run_experiment_with_context(spec, host, baseline)
 }
 
-pub fn run_experiment_with_baseline(
+pub fn run_experiment_with_context(
     spec: &ExperimentSpec,
+    host: HostInfo,
     baseline: ProcessMemoryBaseline,
 ) -> Result<MemoryWallReceipt, HarnessError> {
     let system = spec.system()?;
@@ -456,7 +459,6 @@ pub fn run_experiment_with_baseline(
     let workload = workload_identity(system, spec.rounds, &operations);
     let operation_support = workload_support_class(spec.representation, system, &operations)?;
     let experiment_id = experiment_id(spec, &workload)?;
-    let host = probe_host();
     let revision = source_revision();
     let revision_url = source_revision_url();
 
@@ -1808,7 +1810,7 @@ mod tests {
             peak_rss_bytes: Some(5678),
         };
 
-        let receipt = run_experiment_with_baseline(&spec, baseline).unwrap();
+        let receipt = run_experiment_with_context(&spec, probe_host(), baseline).unwrap();
 
         assert_eq!(receipt.body.memory.rss_before_bytes, Some(1234));
         assert_eq!(
