@@ -1205,12 +1205,7 @@ impl VirtualExecutor {
             }
             for (offset, index) in (start..end).enumerate() {
                 let output = scratch.output(offset);
-                builder.insert_amplitude(
-                    state.state_len,
-                    self.config.page_span,
-                    index,
-                    output,
-                )?;
+                builder.insert_amplitude(state.state_len, self.config.page_span, index, output)?;
             }
             self.metrics.worker_dispatches = self.metrics.worker_dispatches.saturating_add(1);
             self.metrics.addresses_scanned = self
@@ -1287,12 +1282,7 @@ impl VirtualExecutor {
                     )
                     .ok_or(VirtualizationError::IndexArithmeticOverflow)?;
                 let output = scratch.output(output_digit);
-                builder.insert_amplitude(
-                    state.state_len,
-                    self.config.page_span,
-                    index,
-                    output,
-                )?;
+                builder.insert_amplitude(state.state_len, self.config.page_span, index, output)?;
             }
 
             self.metrics.worker_dispatches = self.metrics.worker_dispatches.saturating_add(1);
@@ -1617,8 +1607,7 @@ impl SharedTileMaterializer {
             amplitudes.push(self.state.amplitude_at_validated(index));
         }
 
-        let owner =
-            (tile_index as u128 % u128::from(self.state.config.owner_count)) as u32;
+        let owner = (tile_index as u128 % u128::from(self.state.config.owner_count)) as u32;
         let mut identity = Vec::new();
         push_len_bytes(
             &mut identity,
@@ -1627,9 +1616,17 @@ impl SharedTileMaterializer {
         push_len_bytes(&mut identity, self.state.state_digest.as_bytes());
         push_len_bytes(
             &mut identity,
-            self.state.codec.manifest().source_identity().digest().as_bytes(),
+            self.state
+                .codec
+                .manifest()
+                .source_identity()
+                .digest()
+                .as_bytes(),
         );
-        push_len_bytes(&mut identity, self.state.codec.geometry().digest().as_bytes());
+        push_len_bytes(
+            &mut identity,
+            self.state.codec.geometry().digest().as_bytes(),
+        );
         push_len_bytes(&mut identity, self.state.config.digest().as_bytes());
         identity.extend_from_slice(&(tile_index as u128).to_be_bytes());
         identity.extend_from_slice(&(start as u128).to_be_bytes());
@@ -2076,6 +2073,35 @@ mod tests {
     }
 
     #[test]
+    fn non_finite_operation_output_fails_atomically_like_gate_a() {
+        let spec = SystemSpec::new(2, 1).unwrap();
+        let amplitudes = vec![
+            Complex64::new(f64::MAX, 0.0),
+            Complex64::new(f64::MAX, 0.0),
+        ];
+        let operation = Operation::Fourier { target: 0 };
+
+        let mut gate_a =
+            FlyQdnState::from_amplitudes(codec(), 64, spec, amplitudes.clone()).unwrap();
+        assert!(matches!(
+            gate_a.apply_operation(&operation),
+            Err(FlyQdnError::NonFiniteAmplitude { .. })
+        ));
+
+        let mut virtualized =
+            VirtualFlyQdnState::from_amplitudes(codec(), spec, amplitudes, config()).unwrap();
+        let before = virtualized.state_digest().to_owned();
+        let mut executor = VirtualExecutor::new(config()).unwrap();
+        assert!(matches!(
+            executor.apply_operation(&mut virtualized, &operation),
+            Err(VirtualizationError::GateA(
+                FlyQdnError::NonFiniteAmplitude { .. }
+            ))
+        ));
+        assert_eq!(virtualized.state_digest(), before);
+    }
+
+    #[test]
     fn shared_materialization_reuses_one_immutable_tile() {
         let spec = SystemSpec::new(2, 5).unwrap();
         let state = Arc::new(VirtualFlyQdnState::zero(codec(), spec, config()).unwrap());
@@ -2087,6 +2113,7 @@ mod tests {
         let second = materializer.materialize(0, &request).unwrap();
 
         assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.artifact_id(), second.artifact_id());
         assert_eq!(materializer.generation_count(), 1);
         assert_eq!(first.amplitudes().len(), 8);
     }
