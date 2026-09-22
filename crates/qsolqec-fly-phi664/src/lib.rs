@@ -117,10 +117,7 @@ pub struct MacroGraphManifest {
 }
 
 impl MacroGraphManifest {
-    fn build(
-        source_spec: MacroSourceSpec,
-        sorted_body_ids: &[u64],
-    ) -> Result<Self, Phi664Error> {
+    fn build(source_spec: MacroSourceSpec, sorted_body_ids: &[u64]) -> Result<Self, Phi664Error> {
         source_spec.validate()?;
         if sorted_body_ids.is_empty() {
             return Err(Phi664Error::EmptyMacrograph);
@@ -402,13 +399,12 @@ impl LogicalAddressCodec for Phi664Codec {
         let local = packed.index() % PHI664_POSITIONS_PER_MACRO_NODE;
         let rank_usize =
             usize::try_from(rank).map_err(|_| StorageContractError::AddressArithmeticOverflow)?;
-        let body_id = *self
-            .sorted_body_ids
-            .get(rank_usize)
-            .ok_or(StorageContractError::AddressOutOfRange {
+        let body_id = *self.sorted_body_ids.get(rank_usize).ok_or(
+            StorageContractError::AddressOutOfRange {
                 index: rank,
                 logical_address_count: self.manifest.macro_node_count(),
-            })?;
+            },
+        )?;
 
         let (fibre, fibre_local) = Self::decode_local(local);
         let side = u128::from(fibre.side());
@@ -585,12 +581,7 @@ impl ObservableStorage for Phi664Store {
     }
 }
 
-fn validate_coordinates(
-    fibre: FibreId,
-    x: u8,
-    y: u8,
-    z: u8,
-) -> Result<(), Phi664Error> {
+fn validate_coordinates(fibre: FibreId, x: u8, y: u8, z: u8) -> Result<(), Phi664Error> {
     let extent = fibre.side();
     for (axis, coordinate) in [("x", x), ("y", y), ("z", z)] {
         if coordinate >= extent {
@@ -837,11 +828,32 @@ mod tests {
 
         assert_eq!(cells.len(), 3);
         assert_eq!(cells[0].address.fibre(), FibreId::F27);
-        assert_eq!((cells[0].address.x(), cells[0].address.y(), cells[0].address.z()), (2, 2, 1));
+        assert_eq!(
+            (
+                cells[0].address.x(),
+                cells[0].address.y(),
+                cells[0].address.z()
+            ),
+            (2, 2, 1)
+        );
         assert_eq!(cells[1].address.fibre(), FibreId::F27);
-        assert_eq!((cells[1].address.x(), cells[1].address.y(), cells[1].address.z()), (2, 2, 2));
+        assert_eq!(
+            (
+                cells[1].address.x(),
+                cells[1].address.y(),
+                cells[1].address.z()
+            ),
+            (2, 2, 2)
+        );
         assert_eq!(cells[2].address.fibre(), FibreId::N125);
-        assert_eq!((cells[2].address.x(), cells[2].address.y(), cells[2].address.z()), (0, 0, 0));
+        assert_eq!(
+            (
+                cells[2].address.x(),
+                cells[2].address.y(),
+                cells[2].address.z()
+            ),
+            (0, 0, 0)
+        );
         assert!(cells.iter().all(|cell| cell.payload.is_none()));
     }
 
