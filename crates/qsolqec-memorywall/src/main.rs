@@ -109,7 +109,9 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 child_args.push("--oracle-limit-mib".into());
                 child_args.push(value.clone());
             }
-            child_args.extend(fly_args.iter().cloned());
+            if *representation == RepresentationKind::FlyPhi664Virtualized {
+                child_args.extend(fly_args.iter().cloned());
+            }
 
             let output = Command::new(&executable).args(&child_args).output()?;
             if !output.status.success() {
