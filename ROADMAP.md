@@ -405,6 +405,8 @@ R8 has two ordered gates. The storage substrate must pass the state-binding gate
 
 ### Gate A - explicit Q(d,n) encoding and operation contract
 
+**Implemented in the PR #10 (pending merge).**
+
 Define a representation adapter that binds neutral Fly-Phi664 storage to a declared quantum/qudit model.
 
 The adapter contract must state, at minimum:
@@ -437,6 +439,24 @@ quantum-state semantics
 ```
 
 R9 may compare Fly-Phi664 against Dense/Stabilizer only after this adapter exists and deterministic tractable fixtures demonstrate that the declared workload can be encoded, operated on, and compared under the same experiment contract.
+
+The R8A implementation supplies:
+
+- `qsolqec-fly-qdn` as the explicit state-binding adapter;
+- exact basis-index -> same-numbered Phi664 packed-address mapping;
+- a 16-byte big-endian IEEE-754 Complex64 payload codec;
+- exact reconstruction with positive-zero elision and signed-zero preservation;
+- fail-closed rejection when `d^n` exceeds the supplied Phi664 namespace;
+- exact support for Weyl X/Z, Fourier, controlled shift, and swap;
+- explicit unsupported status for local permutation and generic local unitary;
+- atomic validated operation sequences with no Dense runtime fallback;
+- a semantic state digest domain separated from storage source/geometry identity;
+- serial norm-squared and explicit amplitude-comparison semantics;
+- Glass Box `ObservableState` only at the bound-adapter layer;
+- Dense as a dev-test oracle only, reaching E3 oracle-compared maturity;
+- documentation in `docs/FLY_PHI664_QDN.md`.
+
+This is deliberately a full-reconstruction baseline. It does not claim a memory-wall advantage. Gate B must preserve the Gate-A semantics while reducing materialization.
 
 ### Gate B - GALAXY/OPT virtualized materialization
 
