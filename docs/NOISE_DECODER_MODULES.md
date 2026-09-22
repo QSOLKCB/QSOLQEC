@@ -288,6 +288,7 @@ R10 exports three descriptors.
 ```text
 id: replayable-weyl-noise
 capability: NoiseModel
+consumes: SystemSpec
 produces: ErrorPattern, OperationStream
 maturity: E2 deterministic fixture
 ```
