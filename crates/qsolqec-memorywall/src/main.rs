@@ -4,7 +4,8 @@ use std::process::{Command, ExitCode};
 
 use qsolqec_memorywall::{
     probe_host, run_experiment, source_revision, source_revision_url, ExperimentSpec, HarnessError,
-    MemoryWallReceipt, RepresentationKind, SweepChildFailure, SweepReceipt, SWEEP_SCHEMA,
+    FlyBodyIdSource, MemoryWallReceipt, RepresentationKind, SweepChildFailure, SweepReceipt,
+    SWEEP_SCHEMA,
 };
 
 fn main() -> ExitCode {
@@ -49,6 +50,7 @@ fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(bytes) = optional_mib(args, "--oracle-limit-mib")? {
         spec.oracle_logical_limit_bytes = bytes;
     }
+    configure_fly_spec(&mut spec, args)?;
 
     let receipt = run_experiment(&spec)?;
     let output = option_value(args, "--output").map(PathBuf::from);
@@ -79,6 +81,7 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let oracle_limit_mib =
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
+    let fly_args = normalized_fly_child_args(args)?;
 
     let mut points = Vec::new();
     let mut child_failures = Vec::new();
@@ -106,6 +109,7 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 child_args.push("--oracle-limit-mib".into());
                 child_args.push(value.clone());
             }
+            child_args.extend(fly_args.iter().cloned());
 
             let output = Command::new(&executable).args(&child_args).output()?;
             if !output.status.success() {
@@ -209,8 +213,152 @@ fn parse_representation(value: &str) -> Result<RepresentationKind, Box<dyn std::
     match value {
         "dense" => Ok(RepresentationKind::Dense),
         "stabilizer" | "prime-stabilizer" => Ok(RepresentationKind::PrimeStabilizer),
-        _ => Err(format!("unknown representation {value:?}; use dense or stabilizer").into()),
+        "fly-phi664" | "fly" | "virtualized" => Ok(RepresentationKind::FlyPhi664Virtualized),
+        _ => Err(
+            format!(
+                "unknown representation {value:?}; use dense, stabilizer, or fly-phi664"
+            )
+            .into(),
+        ),
     }
+}
+
+const FLY_VALUE_FLAGS: [&str; 9] = [
+    "--fly-body-ids",
+    "--fly-page-span",
+    "--fly-tile-span",
+    "--fly-sparse-max",
+    "--fly-bitmap-max",
+    "--fly-scratch-domains",
+    "--fly-owner-count",
+    "--fly-cache-states",
+    "--fly-max-in-flight",
+];
+
+fn configure_fly_spec(
+    spec: &mut ExperimentSpec,
+    args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let has_fly_option = FLY_VALUE_FLAGS
+        .iter()
+        .any(|flag| args.iter().any(|argument| argument == flag));
+
+    if spec.representation != RepresentationKind::FlyPhi664Virtualized {
+        if has_fly_option {
+            return Err("Fly-specific options require --representation fly-phi664".into());
+        }
+        return Ok(());
+    }
+
+    if let Some(path) = optional_value_once(args, "--fly-body-ids")? {
+        spec.fly.body_ids = parse_body_id_file(std::path::Path::new(path))?;
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+    }
+    if let Some(value) = optional_usize(args, "--fly-page-span")? {
+        spec.fly.page_span = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-tile-span")? {
+        spec.fly.tile_span = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-sparse-max")? {
+        spec.fly.sparse_max_occupancy = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-bitmap-max")? {
+        spec.fly.bitmap_max_occupancy = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-scratch-domains")? {
+        spec.fly.scratch_domains = value;
+    }
+    if let Some(value) = optional_u32(args, "--fly-owner-count")? {
+        spec.fly.owner_count = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-cache-states")? {
+        spec.fly.max_cached_states = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-max-in-flight")? {
+        spec.fly.max_in_flight_generations = value;
+    }
+    Ok(())
+}
+
+fn normalized_fly_child_args(
+    args: &[String],
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+    for flag in FLY_VALUE_FLAGS {
+        if let Some(value) = optional_value_once(args, flag)? {
+            output.push(flag.to_owned());
+            output.push(value.to_owned());
+        }
+    }
+    Ok(output)
+}
+
+fn optional_value_once<'a>(
+    args: &'a [String],
+    flag: &str,
+) -> Result<Option<&'a str>, Box<dyn std::error::Error>> {
+    let positions: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, argument)| (argument == flag).then_some(index))
+        .collect();
+    if positions.len() > 1 {
+        return Err(format!("{flag} may be supplied at most once").into());
+    }
+    let Some(index) = positions.first().copied() else {
+        return Ok(None);
+    };
+    let value = args
+        .get(index + 1)
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| format!("{flag} requires a value"))?;
+    Ok(Some(value))
+}
+
+fn optional_usize(
+    args: &[String],
+    flag: &str,
+) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+    optional_value_once(args, flag)?
+        .map(|value| parse_usize(value, flag))
+        .transpose()
+}
+
+fn optional_u32(
+    args: &[String],
+    flag: &str,
+) -> Result<Option<u32>, Box<dyn std::error::Error>> {
+    optional_value_once(args, flag)?
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|_| format!("{flag} expects a non-negative u32, got {value:?}").into())
+        })
+        .transpose()
+}
+
+fn parse_body_id_file(path: &std::path::Path) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+    let text = fs::read_to_string(path)?;
+    let mut body_ids = Vec::new();
+    for (line_number, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let body_id = trimmed.parse::<u64>().map_err(|_| {
+            format!(
+                "{}:{} is not a valid unsigned bodyId: {trimmed:?}",
+                path.display(),
+                line_number + 1
+            )
+        })?;
+        body_ids.push(body_id);
+    }
+    if body_ids.is_empty() {
+        return Err(format!("{} contains no bodyId values", path.display()).into());
+    }
+    Ok(body_ids)
 }
 
 fn optional_mib(args: &[String], flag: &str) -> Result<Option<u64>, Box<dyn std::error::Error>> {
@@ -262,14 +410,24 @@ USAGE:
   qsolqec-memorywall probe [--output FILE]
 
   qsolqec-memorywall run \\
-    --representation dense|stabilizer \\
+    --representation dense|stabilizer|fly-phi664 \\
     --dimension D --subsystems N --rounds R \\
     [--max-logical-mib MIB] [--oracle-limit-mib MIB] [--output FILE]
+    [--fly-body-ids FILE]
+    [--fly-page-span N] [--fly-tile-span N]
+    [--fly-sparse-max N] [--fly-bitmap-max N]
+    [--fly-scratch-domains N] [--fly-owner-count N]
+    [--fly-cache-states N] [--fly-max-in-flight N]
 
   qsolqec-memorywall sweep \\
-    --representations dense,stabilizer \\
+    --representations dense,stabilizer,fly-phi664 \\
     --dimension D --start-n N --end-n N --step S --rounds R \\
     [--max-logical-mib MIB] [--oracle-limit-mib MIB] [--output FILE]
+    [--fly-body-ids FILE]
+    [--fly-page-span N] [--fly-tile-span N]
+    [--fly-sparse-max N] [--fly-bitmap-max N]
+    [--fly-scratch-domains N] [--fly-owner-count N]
+    [--fly-cache-states N] [--fly-max-in-flight N]
 
 Each sweep point executes as a fresh child process so per-point Linux VmHWM
 measurements are not contaminated by earlier representations."
