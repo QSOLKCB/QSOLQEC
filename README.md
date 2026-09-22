@@ -126,7 +126,7 @@ crates/
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
-R5 adds a provider-neutral memory-wall runtime that executes deterministic workloads through Dense and PrimeStabilizer, records logical representation bytes separately from process RSS, and emits machine-readable receipts suitable for repeated local/cloud experiments.
+R5 adds a provider-neutral memory-wall runtime that executes deterministic workloads through Dense and PrimeStabilizer, records logical representation bytes separately from process RSS, and emits machine-readable receipts suitable for repeated local/cloud experiments. Every benchmark receipt is bound at build time to the exact public QSOLQEC source commit used to produce the executable.
 
 See:
 
