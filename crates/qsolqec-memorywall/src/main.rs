@@ -5,10 +5,12 @@ use std::process::{Command, ExitCode};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qsolqec_memorywall::{
-    capture_process_memory_baseline, probe_host, run_experiment_with_baseline, source_revision,
+    capture_process_memory_baseline, probe_host, run_experiment_with_context, source_revision,
     source_revision_url, ExperimentSpec, FlyBodyIdSource, HarnessError, MemoryWallReceipt,
     RepresentationKind, SweepChildFailure, SweepReceipt, SWEEP_SCHEMA,
 };
+
+const FROZEN_FLY_BODY_IDS_ENV: &str = "QSOLQEC_FROZEN_FLY_BODY_IDS";
 
 fn main() -> ExitCode {
     match real_main() {
@@ -42,6 +44,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let host = probe_host();
     let baseline = capture_process_memory_baseline();
     let representation = parse_representation(required(args, "--representation")?)?;
     let dimension = parse_usize(required(args, "--dimension")?, "--dimension")?;
@@ -55,7 +58,7 @@ fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     configure_fly_spec(&mut spec, args)?;
 
-    let receipt = run_experiment_with_baseline(&spec, baseline)?;
+    let receipt = run_experiment_with_context(&spec, host, baseline)?;
     let output = option_value(args, "--output").map(PathBuf::from);
     emit_json(&receipt, output.as_deref())?;
     Ok(())
@@ -117,11 +120,16 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 child_args.push("--oracle-limit-mib".into());
                 child_args.push(value.clone());
             }
+            let mut command = Command::new(&executable);
+            command.args(&child_args);
             if *representation == RepresentationKind::FlyPhi664Virtualized {
-                child_args.extend(fly_args.args.iter().cloned());
+                command.args(&fly_args.args);
+                if let Some(path) = &fly_args.frozen_body_ids_path {
+                    command.env(FROZEN_FLY_BODY_IDS_ENV, path.as_os_str());
+                }
             }
 
-            let output = Command::new(&executable).args(&child_args).output()?;
+            let output = command.output()?;
             if !output.status.success() {
                 child_failures.push(child_failure_record(
                     *representation,
@@ -247,9 +255,11 @@ fn configure_fly_spec(
     spec: &mut ExperimentSpec,
     args: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let has_fly_option = FLY_VALUE_FLAGS
-        .iter()
-        .any(|flag| args.iter().any(|argument| argument == flag));
+    let frozen_body_ids_path = std::env::var_os(FROZEN_FLY_BODY_IDS_ENV);
+    let has_fly_option = frozen_body_ids_path.is_some()
+        || FLY_VALUE_FLAGS
+            .iter()
+            .any(|flag| args.iter().any(|argument| argument == flag));
 
     if spec.representation != RepresentationKind::FlyPhi664Virtualized {
         if has_fly_option {
@@ -258,7 +268,14 @@ fn configure_fly_spec(
         return Ok(());
     }
 
-    if let Some(path) = optional_value_once(args, "--fly-body-ids")? {
+    if frozen_body_ids_path.is_some() && optional_value_once(args, "--fly-body-ids")?.is_some() {
+        return Err("frozen Fly body-ID snapshot conflicts with --fly-body-ids".into());
+    }
+
+    if let Some(path) = frozen_body_ids_path {
+        spec.fly.body_ids = parse_body_id_file(std::path::Path::new(&path))?;
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+    } else if let Some(path) = optional_value_once(args, "--fly-body-ids")? {
         spec.fly.body_ids = parse_body_id_file(std::path::Path::new(path))?;
         spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
     }
@@ -307,10 +324,7 @@ impl FrozenFlyChildArgs {
             if flag == "--fly-body-ids" {
                 let mut body_ids = parse_body_id_file(std::path::Path::new(value))?;
                 body_ids.sort_unstable();
-                let path = write_frozen_body_ids(&body_ids)?;
-                output.push(flag.to_owned());
-                output.push(path.to_string_lossy().into_owned());
-                frozen_body_ids_path = Some(path);
+                frozen_body_ids_path = Some(write_frozen_body_ids(&body_ids)?);
             } else {
                 output.push(flag.to_owned());
                 output.push(value.to_owned());
