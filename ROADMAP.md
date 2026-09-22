@@ -210,7 +210,7 @@ No future representation should claim a memory or performance advantage outside 
 
 ## R6 - Structured logical-memory substrate contract
 
-**Implemented in PR #8 (pending merge)**
+**Complete: PR #8**
 
 R6 defines a representation-independent contract for very large logical address spaces whose complete contents do not need to be resident simultaneously.
 
@@ -281,6 +281,8 @@ See `docs/STRUCTURED_STORAGE_CONTRACT.md`.
 
 ## R7 - Fly-Phi664 structured memory prototype
 
+**Implemented in the current R7 follow-on (pending merge)**
+
 R7 introduces the first flagship structured-memory candidate for the amplitude-memory problem.
 
 ### Macro topology
@@ -349,6 +351,8 @@ This number describes the logical namespace only. It is **not** a requirement to
 
 The pinned source manifest, not this planning estimate, becomes authoritative when the prototype is implemented.
 
+The R7 implementation therefore does **not** use 166,691 as an allocation bound. It accepts the exact `bodyId` set selected from the pinned MaleCNS v1.0 release, sorts it canonically, rejects duplicates, hashes the complete ID set, and makes that digest plus the versioned source/projection rules authoritative for source and geometry identity.
+
 ### Candidate representation
 
 Possible crate/module direction:
@@ -370,6 +374,28 @@ A first implementation should be able to:
 - emit the R6 typed storage snapshot/artifact without pretending the neutral store is already a Q(d,n) state representation.
 
 At R7, Fly-Phi664 is therefore a **storage substrate**, not yet a quantum-state representation. It must not implement `ObservableState` merely to obtain Glass Box compatibility.
+
+The R7 implementation supplies:
+
+- `qsolqec-fly-phi664` as the first concrete R6 substrate;
+- a MaleCNS v1.0 source descriptor with versioned node and edge exports;
+- real source `bodyId` values as the public macro-node identity;
+- canonical ascending-`bodyId` rank only for packed-address calculation;
+- an exact digest over the complete supplied macro-node ID set;
+- source identity that changes when macro-node membership changes;
+- F27, N125, and R512 as independent 3x3x3, 5x5x5, and 8x8x8 fibres;
+- stable disjoint-union offsets 0, 27, and 152;
+- checked structured-address ↔ packed-address round trips;
+- unknown-node, fibre-bound, geometry-crossing, and address-space failure behavior;
+- exact sparse opaque-byte payload storage;
+- bounded materialization windows that may cross fibre boundaries without constructing the full namespace;
+- deterministic logical/materialized/tracked-resident accounting;
+- R6 `ObservableStorage` snapshots and storage-artifact identity;
+- a tiny real-ID provenance fixture that is explicitly not a whole-connectome evidence claim.
+
+The edge export and its directed `body_pre -> body_post` interpretation are provenance-bound in R7, but biological adjacency is not materialized or executed by this storage prototype.
+
+See `docs/FLY_PHI664.md`.
 
 ---
 
