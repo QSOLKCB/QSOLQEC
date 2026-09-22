@@ -553,6 +553,39 @@ mod tests {
     }
 
     #[test]
+    fn sweep_freezes_external_body_ids_before_child_runs() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let original = std::env::temp_dir().join(format!(
+            "qsolqec-memorywall-source-bodyids-{}-{stamp}.txt",
+            std::process::id()
+        ));
+        fs::write(&original, "556329\n12781\n").unwrap();
+
+        let args = vec![
+            "--fly-body-ids".to_owned(),
+            original.to_string_lossy().into_owned(),
+            "--fly-page-span".to_owned(),
+            "64".to_owned(),
+        ];
+        let frozen = FrozenFlyChildArgs::from_sweep_args(&args).unwrap();
+        let frozen_path = frozen.frozen_body_ids_path.as_ref().unwrap().clone();
+
+        fs::write(&original, "12781\n556329\n999999\n").unwrap();
+
+        assert_ne!(frozen_path, original);
+        assert_eq!(parse_body_id_file(&frozen_path).unwrap(), vec![12781, 556329]);
+        assert!(frozen
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == "--fly-page-span" && pair[1] == "64"));
+
+        fs::remove_file(original).unwrap();
+    }
+
+    #[test]
     fn child_failure_preserves_requested_point_and_signal() {
         let output = std::process::Output {
             status: std::process::ExitStatus::from_raw(9),
