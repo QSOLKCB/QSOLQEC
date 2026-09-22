@@ -30,7 +30,7 @@ resident working-set bytes
 process RSS
 ~~~
 
-For Dense and PrimeStabilizer, the current implementation can report:
+For Dense, PrimeStabilizer, and the R9 Fly-Phi664 virtualized candidate, the current implementation can report:
 
 - estimated logical bytes before allocation;
 - final logical representation bytes from ObservableState;
@@ -43,6 +43,10 @@ For Dense and PrimeStabilizer, the current implementation can report:
 - oracle-verification time separately;
 - materialization count;
 - allocation count as unavailable (null) until an allocation observer exists.
+
+For `fly-phi664`, receipt schema `qsolqec.memorywall.receipt.v2` also carries an optional `structured_candidate` section with exact MaleCNS/Phi664 source and geometry identities, logical namespace size, materialized addresses/pages, adaptive-page mix, tracked active working-set high water, scratch capacity, reuse/recompute counters, and pruning/scan counters. Dense and Stabilizer leave this section null rather than fabricating candidate-specific measurements.
+
+See [AMPLITUDE_MEMORY_WALL_CHALLENGE.md](AMPLITUDE_MEMORY_WALL_CHALLENGE.md) for the R9 measurement semantics.
 
 A missing measurement is serialized as null. The runtime does not invent a value.
 
@@ -72,7 +76,7 @@ For each round it deterministically walks subsystem targets and emits only the o
 
 The workload ID hashes the workload schema, Q(d,n), round count, and canonical R2 operation bytes.
 
-The workload ID does not include the representation. Dense and Stabilizer therefore receive the same declared operation stream.
+The workload ID does not include the representation. Dense, Stabilizer, and Fly-Phi664 therefore receive the same declared operation stream.
 
 ## Public source identity
 
@@ -116,14 +120,12 @@ Host identity is deliberately separate, so the same experiment can be executed o
 
 Dense is the reference representation and records self-reference.
 
-For PrimeStabilizer, the runtime freezes candidate timing and candidate RSS before dense verification begins.
+For PrimeStabilizer and Fly-Phi664, the runtime freezes candidate timing and candidate RSS before dense verification begins.
 
-If the corresponding dense state is below the configured oracle logical-byte limit, the runtime:
+If the corresponding dense state is below the configured oracle logical-byte limit, the runtime performs representation-appropriate exact verification:
 
-1. executes the same workload through Dense;
-2. applies each final stabilizer generator to the dense state;
-3. measures maximum generator/norm disagreement;
-4. records matched or mismatch under a fixed 1e-10 verification tolerance.
+- PrimeStabilizer applies each final stabilizer generator to Dense and records maximum generator/norm disagreement under the existing 1e-10 tolerance.
+- Fly-Phi664 reconstructs the exact candidate amplitudes after candidate measurements are frozen and compares them to Dense with tolerance 0.0.
 
 If Dense is too large or cannot be constructed, oracle agreement is recorded as unavailable rather than silently assumed.
 
@@ -168,10 +170,10 @@ Run the same workload through the stabilizer representation:
       --rounds 16 \
       --oracle-limit-mib 16
 
-Sweep both representations:
+Sweep all current representations:
 
     cargo run --locked -q -p qsolqec-memorywall -- sweep \
-      --representations dense,stabilizer \
+      --representations dense,stabilizer,fly-phi664 \
       --dimension 2 \
       --start-n 4 \
       --end-n 28 \
