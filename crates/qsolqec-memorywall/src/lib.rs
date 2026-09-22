@@ -872,6 +872,306 @@ fn run_stabilizer(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_fly_virtualized(
+    spec: &ExperimentSpec,
+    system: SystemSpec,
+    operations: Vec<Operation>,
+    workload: WorkloadIdentity,
+    operation_support: OperationSupportClass,
+    experiment_id: String,
+    host: HostInfo,
+    revision: String,
+    revision_url: String,
+    estimated_logical_bytes: Option<u64>,
+    rss_before_bytes: Option<u64>,
+    peak_before_bytes: Option<u64>,
+) -> Result<MemoryWallReceipt, HarnessError> {
+    let virtualization = spec.fly.virtualization_config()?;
+
+    let construction_start = Instant::now();
+    let codec = match Phi664Codec::from_body_ids(
+        MacroSourceSpec::male_cns_v1(),
+        spec.fly.body_ids.clone(),
+    ) {
+        Ok(codec) => codec,
+        Err(error) => {
+            return failed_receipt(
+                spec,
+                workload,
+                operation_support,
+                experiment_id,
+                host,
+                revision,
+                revision_url,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
+                RunOutcome::ExecutionFailed {
+                    reason: format!("Fly-Phi664 macrograph construction failed: {error}"),
+                },
+            );
+        }
+    };
+
+    let macro_node_count = u64::try_from(codec.manifest().macro_node_count())
+        .map_err(|_| HarnessError::InvalidSpec("macro-node count exceeds u64 receipt range".into()))?;
+    let body_ids_digest = codec.manifest().body_ids_digest().to_owned();
+    let source_identity_digest = codec.manifest().source_identity().digest().to_owned();
+    let geometry_digest = codec.geometry().digest().to_owned();
+    let logical_namespace_addresses = u64::try_from(codec.geometry().logical_address_count())
+        .map_err(|_| HarnessError::InvalidSpec("logical namespace exceeds u64 receipt range".into()))?;
+
+    let mut state = match VirtualFlyQdnState::zero(codec, system, virtualization) {
+        Ok(state) => state,
+        Err(error) => {
+            return failed_receipt(
+                spec,
+                workload,
+                operation_support,
+                experiment_id,
+                host,
+                revision,
+                revision_url,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
+                classify_virtualization_error(error),
+            );
+        }
+    };
+
+    let mut executor = match VirtualExecutor::new(virtualization) {
+        Ok(executor) => executor,
+        Err(error) => {
+            return failed_receipt(
+                spec,
+                workload,
+                operation_support,
+                experiment_id,
+                host,
+                revision,
+                revision_url,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                FailureEvidence::materialized(
+                    duration_ns(construction_start.elapsed()),
+                    None,
+                    u64::try_from(state.logical_state_bytes()).ok(),
+                ),
+                classify_virtualization_error(error),
+            );
+        }
+    };
+    let construction_ns = duration_ns(construction_start.elapsed());
+
+    let execution_start = Instant::now();
+    if let Err(error) = executor.apply_operations(&mut state, &operations) {
+        let execution_ns = duration_ns(execution_start.elapsed());
+        return failed_receipt(
+            spec,
+            workload,
+            operation_support,
+            experiment_id,
+            host,
+            revision,
+            revision_url,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+            FailureEvidence::materialized(
+                construction_ns,
+                Some(execution_ns),
+                u64::try_from(state.logical_state_bytes()).ok(),
+            ),
+            classify_virtualization_error(error),
+        );
+    }
+    let execution_ns = duration_ns(execution_start.elapsed());
+
+    let snapshot_start = Instant::now();
+    let snapshot = state.observation_snapshot();
+    let storage = state.storage_snapshot();
+    let page_counts = state.page_kind_counts();
+    let metrics = executor.metrics();
+    let snapshot_ns = duration_ns(snapshot_start.elapsed());
+
+    // Freeze candidate memory evidence before dense-oracle construction.
+    let peak_after = linux_peak_rss_bytes();
+    let rss_after = linux_current_rss_bytes();
+
+    let materialized_address_count = u64::try_from(storage.facts().materialized_address_count)
+        .map_err(|_| HarnessError::Serialization("materialized address count exceeds u64".into()))?;
+    let materialized_payload_bytes = u64::try_from(storage.facts().materialized_payload_bytes)
+        .map_err(|_| HarnessError::Serialization("materialized payload bytes exceed u64".into()))?;
+    let materialized_page_count = u64::try_from(state.materialized_page_count())
+        .map_err(|_| HarnessError::Serialization("materialized page count exceeds u64".into()))?;
+    let tracked_state_resident_bytes = u64::try_from(state.tracked_resident_bytes())
+        .map_err(|_| HarnessError::Serialization("tracked state bytes exceed u64".into()))?;
+    let worker_scratch_capacity_bytes = u64::try_from(executor.worker_scratch_capacity_bytes())
+        .map_err(|_| HarnessError::Serialization("worker scratch bytes exceed u64".into()))?;
+    let peak_tracked_active_bytes = u64::try_from(metrics.peak_tracked_active_bytes)
+        .map_err(|_| HarnessError::Serialization("tracked active bytes exceed u64".into()))?;
+
+    let candidate_measurements = StructuredCandidateMeasurements {
+        body_id_source: spec.fly.body_id_source.clone(),
+        macro_node_count,
+        body_ids_digest,
+        source_identity_digest,
+        geometry_digest,
+        logical_namespace_addresses,
+        materialized_address_count,
+        materialized_page_count,
+        sparse_page_count: u64::try_from(page_counts.sparse).unwrap_or(u64::MAX),
+        bitmap_page_count: u64::try_from(page_counts.bitmap).unwrap_or(u64::MAX),
+        dense_page_count: u64::try_from(page_counts.dense).unwrap_or(u64::MAX),
+        tracked_state_resident_bytes,
+        worker_scratch_capacity_bytes,
+        peak_tracked_active_bytes,
+        scratch_domains: spec.fly.scratch_domains,
+        owner_count: spec.fly.owner_count,
+        cached_state_count: u64::try_from(executor.cached_state_count()).unwrap_or(u64::MAX),
+        cache_hits: metrics.cache_hits,
+        cache_misses: metrics.cache_misses,
+        invariant_reuses: metrics.invariant_reuses,
+        reused_generations: metrics.cache_hits.saturating_add(metrics.invariant_reuses),
+        recomputed_generations: metrics.cache_misses,
+        worker_dispatches: metrics.worker_dispatches,
+        addresses_scanned: u64::try_from(metrics.addresses_scanned).unwrap_or(u64::MAX),
+        addresses_soundly_skipped: u64::try_from(metrics.addresses_soundly_skipped)
+            .unwrap_or(u64::MAX),
+        fourier_lanes_executed: u64::try_from(metrics.fourier_lanes_executed).unwrap_or(u64::MAX),
+        fourier_lanes_pruned: u64::try_from(metrics.fourier_lanes_pruned).unwrap_or(u64::MAX),
+    };
+
+    let oracle_start = Instant::now();
+    let oracle_agreement = match estimate_dense_bytes(system) {
+        None => OracleAgreement::Unavailable {
+            reason: "dense oracle size overflows the platform address space".into(),
+        },
+        Some(bytes) if bytes > spec.oracle_logical_limit_bytes => OracleAgreement::Unavailable {
+            reason: format!(
+                "dense oracle logical bytes {bytes} exceed oracle limit {}",
+                spec.oracle_logical_limit_bytes
+            ),
+        },
+        Some(_) => match DenseState::zero(system) {
+            Err(error) => OracleAgreement::Unavailable {
+                reason: format!("dense oracle construction failed: {error}"),
+            },
+            Ok(mut dense) => match dense.apply_operations(&operations) {
+                Err(error) => OracleAgreement::Unavailable {
+                    reason: format!("dense oracle execution failed: {error}"),
+                },
+                Ok(()) => match fly_dense_max_error(&state, &dense) {
+                    Ok(max_error) if max_error == 0.0 => OracleAgreement::Matched {
+                        tolerance: 0.0,
+                        max_error,
+                    },
+                    Ok(max_error) => OracleAgreement::Mismatch {
+                        tolerance: 0.0,
+                        max_error,
+                    },
+                    Err(error) => OracleAgreement::Unavailable {
+                        reason: error.to_string(),
+                    },
+                },
+            },
+        },
+    };
+    let oracle_verification_ns = duration_ns(oracle_start.elapsed());
+
+    finalize_receipt(ReceiptBody {
+        experiment_id,
+        source_revision: revision,
+        source_revision_url: revision_url,
+        representation: spec.representation,
+        representation_id: spec.representation.id().into(),
+        compute_backend: compute_backend(spec.representation).into(),
+        worker_count: 1,
+        dimension: spec.dimension,
+        subsystems: spec.subsystems,
+        rounds: spec.rounds,
+        max_logical_bytes: spec.max_logical_bytes,
+        oracle_logical_limit_bytes: spec.oracle_logical_limit_bytes,
+        workload,
+        operation_support,
+        host,
+        memory: MemoryMeasurements {
+            estimated_logical_bytes,
+            logical_bytes: u64::try_from(snapshot.logical_bytes).ok(),
+            materialized_payload_bytes: Some(materialized_payload_bytes),
+            resident_working_set_bytes: Some(peak_tracked_active_bytes),
+            rss_before_bytes,
+            rss_after_bytes: rss_after,
+            peak_process_rss_before_bytes: peak_before_bytes,
+            peak_process_rss_bytes: peak_after,
+            incremental_peak_rss_bytes: peak_delta(peak_before_bytes, peak_after),
+            allocation_count: None,
+            materialization_count: Some(materialized_page_count),
+        },
+        timings: TimingMeasurements {
+            construction_ns: Some(construction_ns),
+            execution_ns: Some(execution_ns),
+            snapshot_ns: Some(snapshot_ns),
+            oracle_verification_ns: Some(oracle_verification_ns),
+        },
+        final_state_digest: Some(snapshot.state_digest),
+        norm_squared: Some(snapshot.norm_squared),
+        oracle_agreement,
+        structured_candidate: Some(candidate_measurements),
+        outcome: RunOutcome::Success,
+    })
+}
+
+fn classify_virtualization_error(error: VirtualizationError) -> RunOutcome {
+    match error {
+        VirtualizationError::GateA(FlyQdnError::StateSizeOverflow) => RunOutcome::SizeOverflow {
+            reason: error.to_string(),
+        },
+        VirtualizationError::GateA(FlyQdnError::AllocationFailed { .. })
+        | VirtualizationError::AllocationFailed { .. } => RunOutcome::AllocationFailed {
+            reason: error.to_string(),
+        },
+        VirtualizationError::GateA(FlyQdnError::InsufficientLogicalAddresses {
+            required,
+            available,
+        }) => RunOutcome::LogicalNamespaceInsufficient {
+            required_addresses: u64::try_from(required).unwrap_or(u64::MAX),
+            available_addresses: u64::try_from(available).unwrap_or(u64::MAX),
+        },
+        VirtualizationError::GateA(FlyQdnError::UnsupportedOperation { .. })
+        | VirtualizationError::UnsupportedOperation { .. } => RunOutcome::Unsupported {
+            reason: error.to_string(),
+        },
+        _ => RunOutcome::ExecutionFailed {
+            reason: error.to_string(),
+        },
+    }
+}
+
+fn fly_dense_max_error(
+    candidate: &VirtualFlyQdnState,
+    dense: &DenseState,
+) -> Result<f64, HarnessError> {
+    if candidate.spec() != dense.spec() {
+        return Err(HarnessError::Workload(
+            "oracle and Fly-Phi664 SystemSpec differ".into(),
+        ));
+    }
+    let amplitudes = candidate
+        .reconstruct()
+        .map_err(|error| HarnessError::Workload(error.to_string()))?;
+    let mut max_error = 0.0f64;
+    for (candidate, reference) in amplitudes.iter().zip(dense.amplitudes()) {
+        max_error = max_error.max((*candidate - *reference).norm());
+    }
+    Ok(max_error)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct FailureEvidence {
     logical_bytes: Option<u64>,
@@ -1100,6 +1400,29 @@ fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
     }
     hasher.update(&spec.oracle_logical_limit_bytes.to_be_bytes());
     hash_bytes(&mut hasher, compute_backend(spec.representation).as_bytes());
+
+    if spec.representation == RepresentationKind::FlyPhi664Virtualized {
+        hash_bytes(&mut hasher, b"male-cns:v1.0");
+        let mut body_ids = spec.fly.body_ids.clone();
+        body_ids.sort_unstable();
+        hasher.update(&(body_ids.len() as u128).to_be_bytes());
+        for body_id in body_ids {
+            hasher.update(&body_id.to_be_bytes());
+        }
+        for value in [
+            spec.fly.page_span as u128,
+            spec.fly.tile_span as u128,
+            spec.fly.sparse_max_occupancy as u128,
+            spec.fly.bitmap_max_occupancy as u128,
+            spec.fly.scratch_domains as u128,
+            u128::from(spec.fly.owner_count),
+            spec.fly.max_cached_states as u128,
+            spec.fly.max_in_flight_generations as u128,
+        ] {
+            hasher.update(&value.to_be_bytes());
+        }
+    }
+
     format!("sha256:{}", hasher.finalize_hex())
 }
 
