@@ -44,8 +44,6 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let host = probe_host();
-    let baseline = capture_process_memory_baseline();
     let representation = parse_representation(required(args, "--representation")?)?;
     let dimension = parse_usize(required(args, "--dimension")?, "--dimension")?;
     let subsystems = parse_usize(required(args, "--subsystems")?, "--subsystems")?;
@@ -56,6 +54,9 @@ fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(bytes) = optional_mib(args, "--oracle-limit-mib")? {
         spec.oracle_logical_limit_bytes = bytes;
     }
+
+    let host = probe_host();
+    let baseline = capture_process_memory_baseline();
     configure_fly_spec(&mut spec, args)?;
 
     let receipt = run_experiment_with_context(&spec, host, baseline)?;
@@ -88,7 +89,7 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
     let fly_args = FrozenFlyChildArgs::from_sweep_args(args)?;
-    if !fly_args.args.is_empty()
+    if fly_args.has_any()
         && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
     {
         return Err("Fly-specific options require fly-phi664 in --representations".into());
@@ -312,6 +313,11 @@ struct FrozenFlyChildArgs {
 }
 
 impl FrozenFlyChildArgs {
+    fn has_any(&self) -> bool {
+        !self.args.is_empty() || self.frozen_body_ids_path.is_some()
+    }
+
+
     fn from_sweep_args(args: &[String]) -> Result<Self, Box<dyn std::error::Error>> {
         let mut output = Vec::new();
         let mut frozen_body_ids_path = None;
@@ -618,6 +624,15 @@ mod tests {
             .find(|(key, _)| *key == std::ffi::OsStr::new(FROZEN_FLY_BODY_IDS_ENV))
             .unwrap();
         assert_eq!(value.unwrap().as_bytes(), raw.as_slice());
+    }
+
+    #[test]
+    fn frozen_body_id_snapshot_counts_as_a_fly_option() {
+        let frozen = FrozenFlyChildArgs {
+            args: Vec::new(),
+            frozen_body_ids_path: Some(PathBuf::from("/tmp/frozen-bodyids.txt")),
+        };
+        assert!(frozen.has_any());
     }
 
     #[test]
