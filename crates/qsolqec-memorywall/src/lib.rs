@@ -205,6 +205,37 @@ pub struct MemoryMeasurements {
     pub materialization_count: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StructuredCandidateMeasurements {
+    pub body_id_source: FlyBodyIdSource,
+    pub macro_node_count: u64,
+    pub body_ids_digest: String,
+    pub source_identity_digest: String,
+    pub geometry_digest: String,
+    pub logical_namespace_addresses: u64,
+    pub materialized_address_count: u64,
+    pub materialized_page_count: u64,
+    pub sparse_page_count: u64,
+    pub bitmap_page_count: u64,
+    pub dense_page_count: u64,
+    pub tracked_state_resident_bytes: u64,
+    pub worker_scratch_capacity_bytes: u64,
+    pub peak_tracked_active_bytes: u64,
+    pub scratch_domains: usize,
+    pub owner_count: u32,
+    pub cached_state_count: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub invariant_reuses: u64,
+    pub reused_generations: u64,
+    pub recomputed_generations: u64,
+    pub worker_dispatches: u64,
+    pub addresses_scanned: u64,
+    pub addresses_soundly_skipped: u64,
+    pub fourier_lanes_executed: u64,
+    pub fourier_lanes_pruned: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperationSupportClass {
@@ -247,6 +278,10 @@ pub enum RunOutcome {
         required_bytes: u64,
         limit_bytes: u64,
     },
+    LogicalNamespaceInsufficient {
+        required_addresses: u64,
+        available_addresses: u64,
+    },
     AllocationFailed {
         reason: String,
     },
@@ -283,6 +318,7 @@ pub struct ReceiptBody {
     pub final_state_digest: Option<String>,
     pub norm_squared: Option<f64>,
     pub oracle_agreement: OracleAgreement,
+    pub structured_candidate: Option<StructuredCandidateMeasurements>,
     pub outcome: RunOutcome,
 }
 
