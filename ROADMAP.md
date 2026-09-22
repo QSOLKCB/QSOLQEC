@@ -405,7 +405,7 @@ R8 has two ordered gates. The storage substrate must pass the state-binding gate
 
 ### Gate A - explicit Q(d,n) encoding and operation contract
 
-**Implemented in the current R8A follow-on PR (pending merge).**
+**Implemented in the PR #10 (pending merge).**
 
 Define a representation adapter that binds neutral Fly-Phi664 storage to a declared quantum/qudit model.
 
