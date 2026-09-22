@@ -1,0 +1,7 @@
+# R7 MaleCNS v1.0 provenance fixture
+#
+# These are real bodyId examples published on the MaleCNS project/download
+# documentation. This file is deliberately a tiny deterministic fixture, not
+# the complete macrograph export and not evidence for a whole-connectome run.
+12781
+556329
