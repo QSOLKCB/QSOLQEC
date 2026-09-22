@@ -842,6 +842,7 @@ pub struct VirtualizationMetrics {
     pub addresses_soundly_skipped: u128,
     pub fourier_lanes_executed: u128,
     pub fourier_lanes_pruned: u128,
+    pub peak_tracked_active_bytes: u128,
 }
 
 #[derive(Debug)]
@@ -1000,6 +1001,7 @@ impl VirtualExecutor {
 
         let mut candidate = state.clone();
         let mut pending = Vec::new();
+        self.observe_tracked_active(&candidate);
 
         for operation in operations {
             if operation_is_bitwise_identity(candidate.spec, operation) {
@@ -1012,6 +1014,7 @@ impl VirtualExecutor {
             let signature = operation_signature(&candidate, operation);
             if let Some(cached) = self.state_cache.get(&signature) {
                 candidate = cached.as_ref().clone();
+                self.observe_tracked_active(&candidate);
                 self.metrics.cache_hits = self.metrics.cache_hits.saturating_add(1);
                 self.metrics.operations_executed =
                     self.metrics.operations_executed.saturating_add(1);
@@ -1022,6 +1025,7 @@ impl VirtualExecutor {
             let next = self.apply_fresh(&candidate, operation)?;
             pending.push((signature, Arc::new(next.clone())));
             candidate = next;
+            self.observe_tracked_active(&candidate);
             self.metrics.operations_executed = self.metrics.operations_executed.saturating_add(1);
         }
 
@@ -1033,6 +1037,14 @@ impl VirtualExecutor {
 
         *state = candidate;
         Ok(())
+    }
+
+    fn observe_tracked_active(&mut self, state: &VirtualFlyQdnState) {
+        let tracked = state
+            .tracked_resident_bytes()
+            .saturating_add(self.worker_scratch_capacity_bytes());
+        self.metrics.peak_tracked_active_bytes =
+            self.metrics.peak_tracked_active_bytes.max(tracked);
     }
 
     fn ensure_config(&self, state: &VirtualFlyQdnState) -> Result<(), VirtualizationError> {
