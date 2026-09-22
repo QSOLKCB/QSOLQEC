@@ -25,7 +25,7 @@ use qsolqec_stabilizer::{PrimeStabilizerState, StabilizerError};
 use serde::{Deserialize, Serialize};
 
 pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v2";
-pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v1";
+pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v2";
 pub const HOST_SCHEMA: &str = "qsolqec.memorywall.host.v1";
 pub const WORKLOAD_SCHEMA: &str = "qsolqec.memorywall.clifford-ring.v1";
 pub const SOURCE_REPOSITORY: &str = "https://github.com/QSOLKCB/QSOLQEC";
@@ -1622,6 +1622,10 @@ mod tests {
             estimate_logical_bytes(RepresentationKind::PrimeStabilizer, system),
             Some(12 * 25 * std::mem::size_of::<usize>() as u64)
         );
+        assert_eq!(
+            estimate_logical_bytes(RepresentationKind::FlyPhi664Virtualized, system),
+            Some(4096 * 16)
+        );
     }
 
     #[test]
@@ -1664,6 +1668,84 @@ mod tests {
             OracleAgreement::Matched { .. }
         ));
         assert!(receipt.body.final_state_digest.is_some());
+    }
+
+    #[test]
+    fn fly_small_run_matches_dense_and_reports_structured_metrics() {
+        let spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 3, 2);
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(receipt.body.outcome.is_success());
+        assert_eq!(receipt.body.operation_support, OperationSupportClass::Exact);
+        assert!(matches!(
+            receipt.body.oracle_agreement,
+            OracleAgreement::Matched {
+                tolerance: 0.0,
+                max_error: 0.0
+            }
+        ));
+        assert_eq!(receipt.body.memory.logical_bytes, Some(8 * 16));
+        assert!(receipt.body.memory.materialized_payload_bytes.is_some());
+        assert!(receipt.body.memory.resident_working_set_bytes.is_some());
+
+        let candidate = receipt.body.structured_candidate.as_ref().unwrap();
+        assert_eq!(candidate.macro_node_count, 2);
+        assert_eq!(candidate.logical_namespace_addresses, 2 * 664);
+        assert!(candidate.materialized_address_count > 0);
+        assert!(candidate.materialized_page_count > 0);
+        assert_eq!(
+            candidate.recomputed_generations,
+            candidate.cache_misses
+        );
+        assert_eq!(
+            candidate.reused_generations,
+            candidate.cache_hits + candidate.invariant_reuses
+        );
+        assert!(candidate.peak_tracked_active_bytes >= candidate.worker_scratch_capacity_bytes);
+    }
+
+    #[test]
+    fn fly_namespace_exhaustion_is_a_structured_terminal_point() {
+        let spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 11, 1);
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::LogicalNamespaceInsufficient {
+                required_addresses: 2048,
+                available_addresses: 1328
+            }
+        ));
+        assert!(receipt.body.final_state_digest.is_none());
+    }
+
+    #[test]
+    fn fly_body_id_order_does_not_change_experiment_identity() {
+        let first = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        let mut second = first.clone();
+        second.fly.body_ids.reverse();
+
+        let first_receipt = run_experiment(&first).unwrap();
+        let second_receipt = run_experiment(&second).unwrap();
+
+        assert_eq!(
+            first_receipt.body.experiment_id,
+            second_receipt.body.experiment_id
+        );
+        assert_eq!(
+            first_receipt
+                .body
+                .structured_candidate
+                .as_ref()
+                .unwrap()
+                .body_ids_digest,
+            second_receipt
+                .body
+                .structured_candidate
+                .as_ref()
+                .unwrap()
+                .body_ids_digest
+        );
     }
 
     #[test]
@@ -1711,6 +1793,15 @@ mod tests {
             stabilizer.body.operation_support,
             OperationSupportClass::Exact
         );
+
+        let fly = run_experiment(&ExperimentSpec::new(
+            RepresentationKind::FlyPhi664Virtualized,
+            2,
+            2,
+            1,
+        ))
+        .unwrap();
+        assert_eq!(fly.body.operation_support, OperationSupportClass::Exact);
     }
 
     #[test]
@@ -1786,5 +1877,7 @@ mod tests {
         let decoded: MemoryWallReceipt = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.body.experiment_id, receipt.body.experiment_id);
         assert_eq!(decoded.receipt_id, receipt.receipt_id);
+        assert_eq!(decoded.schema, RECEIPT_SCHEMA);
+        assert_eq!(decoded.schema, "qsolqec.memorywall.receipt.v2");
     }
 }
