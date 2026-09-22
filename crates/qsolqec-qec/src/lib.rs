@@ -251,8 +251,8 @@ impl ReplayableWeylNoise {
             })?;
 
         let nonzero = system.dimension() - 1;
-        let nonzero_u64 = u64::try_from(nonzero)
-            .expect("supported Rust targets represent usize within u64");
+        let nonzero_u64 =
+            u64::try_from(nonzero).expect("supported Rust targets represent usize within u64");
         for target in 0..system.subsystems() {
             // Consume a fixed four words per subsystem. Rate changes therefore
             // do not alter the later RNG position.
@@ -263,15 +263,13 @@ impl ReplayableWeylNoise {
 
             let x_shift = if (x_decision % u64::from(PPM_SCALE)) < u64::from(self.spec.x_error_ppm)
             {
-                1 + usize::try_from(x_magnitude % nonzero_u64)
-                    .expect("modulo result fits usize")
+                1 + usize::try_from(x_magnitude % nonzero_u64).expect("modulo result fits usize")
             } else {
                 0
             };
             let z_power = if (z_decision % u64::from(PPM_SCALE)) < u64::from(self.spec.z_error_ppm)
             {
-                1 + usize::try_from(z_magnitude % nonzero_u64)
-                    .expect("modulo result fits usize")
+                1 + usize::try_from(z_magnitude % nonzero_u64).expect("modulo result fits usize")
             } else {
                 0
             };
