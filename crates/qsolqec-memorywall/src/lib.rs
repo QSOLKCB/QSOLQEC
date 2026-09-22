@@ -13,13 +13,19 @@ use std::time::Instant;
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
 use qsolqec_dense::{DenseState, DenseStateError};
+use qsolqec_fly_phi664::{canonical_body_ids_digest, MacroSourceSpec, Phi664Codec};
+use qsolqec_fly_qdn::virtualized::{
+    VirtualExecutor, VirtualFlyQdnState, VirtualizationConfig, VirtualizationError,
+    VIRTUALIZED_REPRESENTATION_ID,
+};
+use qsolqec_fly_qdn::FlyQdnError;
 use qsolqec_glassbox::{sha256_hex, ObservableState, SemanticHasher};
 use qsolqec_ops::{Operation, OperationSupport};
 use qsolqec_stabilizer::{PrimeStabilizerState, StabilizerError};
 use serde::{Deserialize, Serialize};
 
-pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v1";
-pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v1";
+pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v2";
+pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v2";
 pub const HOST_SCHEMA: &str = "qsolqec.memorywall.host.v1";
 pub const WORKLOAD_SCHEMA: &str = "qsolqec.memorywall.clifford-ring.v1";
 pub const SOURCE_REPOSITORY: &str = "https://github.com/QSOLKCB/QSOLQEC";
@@ -31,6 +37,7 @@ const BUILD_SOURCE_SHA: &str = env!("QSOLQEC_BUILD_SOURCE_SHA");
 pub enum RepresentationKind {
     Dense,
     PrimeStabilizer,
+    FlyPhi664Virtualized,
 }
 
 impl RepresentationKind {
@@ -38,6 +45,7 @@ impl RepresentationKind {
         match self {
             Self::Dense => "dense-reference",
             Self::PrimeStabilizer => "prime-stabilizer",
+            Self::FlyPhi664Virtualized => VIRTUALIZED_REPRESENTATION_ID,
         }
     }
 }
@@ -47,7 +55,89 @@ impl fmt::Display for RepresentationKind {
         f.write_str(match self {
             Self::Dense => "dense",
             Self::PrimeStabilizer => "stabilizer",
+            Self::FlyPhi664Virtualized => "fly-phi664",
         })
+    }
+}
+
+pub const BUILTIN_FLY_BODY_IDS: [u64; 2] = [12781, 556329];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FlyBodyIdSource {
+    BuiltinR7Fixture,
+    ExternalCanonicalList,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlyExperimentConfig {
+    pub body_ids: Vec<u64>,
+    pub body_id_source: FlyBodyIdSource,
+    pub page_span: usize,
+    pub tile_span: usize,
+    pub sparse_max_occupancy: usize,
+    pub bitmap_max_occupancy: usize,
+    pub scratch_domains: usize,
+    pub owner_count: u32,
+    pub max_cached_states: usize,
+    pub max_in_flight_generations: usize,
+}
+
+impl Default for FlyExperimentConfig {
+    fn default() -> Self {
+        Self {
+            body_ids: BUILTIN_FLY_BODY_IDS.to_vec(),
+            body_id_source: FlyBodyIdSource::BuiltinR7Fixture,
+            page_span: 256,
+            tile_span: 256,
+            sparse_max_occupancy: 16,
+            bitmap_max_occupancy: 128,
+            scratch_domains: 4,
+            owner_count: 4,
+            max_cached_states: 32,
+            max_in_flight_generations: 4,
+        }
+    }
+}
+
+impl FlyExperimentConfig {
+    fn canonical_body_ids_digest(&self) -> Result<String, HarnessError> {
+        canonical_body_ids_digest(self.body_ids.clone())
+            .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
+    }
+
+    fn validate_body_id_source(&self, body_ids_digest: &str) -> Result<(), HarnessError> {
+        if self.body_id_source == FlyBodyIdSource::BuiltinR7Fixture {
+            let builtin_digest = canonical_body_ids_digest(BUILTIN_FLY_BODY_IDS.to_vec())
+                .map_err(|error| HarnessError::InvalidSpec(error.to_string()))?;
+            if body_ids_digest != builtin_digest {
+                return Err(HarnessError::InvalidSpec(
+                    "body_id_source=builtin-r7-fixture requires exactly the built-in R7 body-ID membership"
+                        .into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn virtualization_config(&self) -> Result<VirtualizationConfig, HarnessError> {
+        VirtualizationConfig::new(
+            self.page_span,
+            self.tile_span,
+            self.sparse_max_occupancy,
+            self.bitmap_max_occupancy,
+            self.scratch_domains,
+            self.owner_count,
+            self.max_cached_states,
+            self.max_in_flight_generations,
+        )
+        .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
+    }
+
+    fn validate_for_system(&self, system: SystemSpec) -> Result<(), HarnessError> {
+        self.virtualization_config()?
+            .validate_for_spec(system)
+            .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
     }
 }
 
@@ -59,6 +149,7 @@ pub struct ExperimentSpec {
     pub rounds: usize,
     pub max_logical_bytes: Option<u64>,
     pub oracle_logical_limit_bytes: u64,
+    pub fly: FlyExperimentConfig,
 }
 
 impl ExperimentSpec {
@@ -75,6 +166,7 @@ impl ExperimentSpec {
             rounds,
             max_logical_bytes: None,
             oracle_logical_limit_bytes: DEFAULT_ORACLE_LOGICAL_LIMIT_BYTES,
+            fly: FlyExperimentConfig::default(),
         }
     }
 
@@ -108,6 +200,19 @@ pub struct HostInfo {
     pub gpus: Vec<GpuInfo>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessMemoryBaseline {
+    pub rss_bytes: Option<u64>,
+    pub peak_rss_bytes: Option<u64>,
+}
+
+pub fn capture_process_memory_baseline() -> ProcessMemoryBaseline {
+    ProcessMemoryBaseline {
+        rss_bytes: linux_current_rss_bytes(),
+        peak_rss_bytes: linux_peak_rss_bytes(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkloadIdentity {
     pub schema: String,
@@ -136,6 +241,44 @@ pub struct MemoryMeasurements {
     pub incremental_peak_rss_bytes: Option<u64>,
     pub allocation_count: Option<u64>,
     pub materialization_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StructuredCandidateMeasurements {
+    pub body_id_source: FlyBodyIdSource,
+    pub macro_node_count: u64,
+    pub body_ids_digest: String,
+    pub source_identity_digest: String,
+    pub geometry_digest: String,
+    pub logical_namespace_addresses: u64,
+    pub materialized_address_count: u64,
+    pub materialized_page_count: u64,
+    pub sparse_page_count: u64,
+    pub bitmap_page_count: u64,
+    pub dense_page_count: u64,
+    pub tracked_state_resident_bytes: u64,
+    pub worker_scratch_capacity_bytes: u64,
+    pub peak_tracked_active_bytes: u64,
+    pub page_span: usize,
+    pub tile_span: usize,
+    pub sparse_max_occupancy: usize,
+    pub bitmap_max_occupancy: usize,
+    pub scratch_domains: usize,
+    pub owner_count: u32,
+    pub max_cached_states: usize,
+    pub max_in_flight_generations: usize,
+    pub cached_state_count: u64,
+    pub peak_retained_cache_states: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub invariant_reuses: u64,
+    pub reused_generations: u64,
+    pub recomputed_generations: u64,
+    pub worker_dispatches: u64,
+    pub addresses_scanned: u64,
+    pub addresses_soundly_skipped: u64,
+    pub fourier_lanes_executed: u64,
+    pub fourier_lanes_pruned: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +323,10 @@ pub enum RunOutcome {
         required_bytes: u64,
         limit_bytes: u64,
     },
+    LogicalNamespaceInsufficient {
+        required_addresses: u64,
+        available_addresses: u64,
+    },
     AllocationFailed {
         reason: String,
     },
@@ -216,6 +363,7 @@ pub struct ReceiptBody {
     pub final_state_digest: Option<String>,
     pub norm_squared: Option<f64>,
     pub oracle_agreement: OracleAgreement,
+    pub structured_candidate: Option<StructuredCandidateMeasurements>,
     pub outcome: RunOutcome,
 }
 
@@ -302,18 +450,30 @@ pub fn source_revision_url() -> String {
 }
 
 pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, HarnessError> {
+    let host = probe_host();
+    let baseline = capture_process_memory_baseline();
+    run_experiment_with_context(spec, host, baseline)
+}
+
+pub fn run_experiment_with_context(
+    spec: &ExperimentSpec,
+    host: HostInfo,
+    baseline: ProcessMemoryBaseline,
+) -> Result<MemoryWallReceipt, HarnessError> {
     let system = spec.system()?;
+    if spec.representation == RepresentationKind::FlyPhi664Virtualized {
+        spec.fly.validate_for_system(system)?;
+    }
     let operations = workload_operations(system, spec.rounds)?;
     let workload = workload_identity(system, spec.rounds, &operations);
     let operation_support = workload_support_class(spec.representation, system, &operations)?;
-    let experiment_id = experiment_id(spec, &workload);
-    let host = probe_host();
+    let experiment_id = experiment_id(spec, &workload)?;
     let revision = source_revision();
     let revision_url = source_revision_url();
 
     let estimated_logical_bytes = estimate_logical_bytes(spec.representation, system);
-    let rss_before_bytes = linux_current_rss_bytes();
-    let peak_before_bytes = linux_peak_rss_bytes();
+    let rss_before_bytes = baseline.rss_bytes;
+    let peak_before_bytes = baseline.peak_rss_bytes;
 
     if operation_support == OperationSupportClass::Unsupported {
         return finalize_receipt(ReceiptBody {
@@ -322,7 +482,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             source_revision_url: revision_url,
             representation: spec.representation,
             representation_id: spec.representation.id().into(),
-            compute_backend: "scalar-cpu".into(),
+            compute_backend: compute_backend(spec.representation).into(),
             worker_count: 1,
             dimension: spec.dimension,
             subsystems: spec.subsystems,
@@ -349,6 +509,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             final_state_digest: None,
             norm_squared: None,
             oracle_agreement: OracleAgreement::NotApplicable,
+            structured_candidate: None,
             outcome: RunOutcome::Unsupported {
                 reason: format!(
                     "{} does not support the declared workload for Q({},{})",
@@ -368,7 +529,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
                 source_revision_url: revision_url,
                 representation: spec.representation,
                 representation_id: spec.representation.id().into(),
-                compute_backend: "scalar-cpu".into(),
+                compute_backend: compute_backend(spec.representation).into(),
                 worker_count: 1,
                 dimension: spec.dimension,
                 subsystems: spec.subsystems,
@@ -395,6 +556,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
                 final_state_digest: None,
                 norm_squared: None,
                 oracle_agreement: OracleAgreement::NotApplicable,
+                structured_candidate: None,
                 outcome: RunOutcome::LogicalBudgetExceeded {
                     required_bytes: required,
                     limit_bytes: limit,
@@ -432,6 +594,20 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             rss_before_bytes,
             peak_before_bytes,
         ),
+        RepresentationKind::FlyPhi664Virtualized => run_fly_virtualized(
+            spec,
+            system,
+            operations,
+            workload,
+            operation_support,
+            experiment_id,
+            host,
+            revision,
+            revision_url,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+        ),
     }
 }
 
@@ -454,6 +630,10 @@ fn workload_support_class(
                     }
                     Err(error) => return Err(HarnessError::Workload(error.to_string())),
                 }
+            }
+            RepresentationKind::FlyPhi664Virtualized => {
+                VirtualFlyQdnState::support_for_spec(system, operation)
+                    .map_err(|error| HarnessError::Workload(error.to_string()))?
             }
         };
 
@@ -538,6 +718,8 @@ fn run_dense(
                 construction_ns,
                 Some(execution_ns),
                 materialized_logical_bytes,
+                materialized_logical_bytes,
+                1,
             ),
             RunOutcome::ExecutionFailed {
                 reason: error.to_string(),
@@ -559,7 +741,7 @@ fn run_dense(
         source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
-        compute_backend: "scalar-cpu".into(),
+        compute_backend: compute_backend(spec.representation).into(),
         worker_count: 1,
         dimension: spec.dimension,
         subsystems: spec.subsystems,
@@ -591,6 +773,7 @@ fn run_dense(
         final_state_digest: Some(snapshot.state_digest),
         norm_squared: Some(snapshot.norm_squared),
         oracle_agreement: OracleAgreement::SelfReference,
+        structured_candidate: None,
         outcome: RunOutcome::Success,
     })
 }
@@ -651,6 +834,8 @@ fn run_stabilizer(
                 construction_ns,
                 Some(execution_ns),
                 materialized_logical_bytes,
+                materialized_logical_bytes,
+                1,
             ),
             classify_stabilizer_error(error),
         );
@@ -711,7 +896,7 @@ fn run_stabilizer(
         source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
-        compute_backend: "scalar-cpu".into(),
+        compute_backend: compute_backend(spec.representation).into(),
         worker_count: 1,
         dimension: spec.dimension,
         subsystems: spec.subsystems,
@@ -743,8 +928,326 @@ fn run_stabilizer(
         final_state_digest: Some(snapshot.state_digest),
         norm_squared: Some(snapshot.norm_squared),
         oracle_agreement,
+        structured_candidate: None,
         outcome: RunOutcome::Success,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_fly_virtualized(
+    spec: &ExperimentSpec,
+    system: SystemSpec,
+    operations: Vec<Operation>,
+    workload: WorkloadIdentity,
+    operation_support: OperationSupportClass,
+    experiment_id: String,
+    host: HostInfo,
+    revision: String,
+    revision_url: String,
+    estimated_logical_bytes: Option<u64>,
+    rss_before_bytes: Option<u64>,
+    peak_before_bytes: Option<u64>,
+) -> Result<MemoryWallReceipt, HarnessError> {
+    let virtualization = spec.fly.virtualization_config()?;
+
+    let construction_start = Instant::now();
+    let codec =
+        match Phi664Codec::from_body_ids(MacroSourceSpec::male_cns_v1(), spec.fly.body_ids.clone())
+        {
+            Ok(codec) => codec,
+            Err(error) => {
+                return failed_receipt(
+                    spec,
+                    workload,
+                    operation_support,
+                    experiment_id,
+                    host,
+                    revision,
+                    revision_url,
+                    estimated_logical_bytes,
+                    rss_before_bytes,
+                    peak_before_bytes,
+                    FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
+                    RunOutcome::ExecutionFailed {
+                        reason: format!("Fly-Phi664 macrograph construction failed: {error}"),
+                    },
+                );
+            }
+        };
+
+    let macro_node_count = u64::try_from(codec.manifest().macro_node_count()).map_err(|_| {
+        HarnessError::InvalidSpec("macro-node count exceeds u64 receipt range".into())
+    })?;
+    let body_ids_digest = codec.manifest().body_ids_digest().to_owned();
+    let source_identity_digest = codec.manifest().source_identity().digest().to_owned();
+    let geometry_digest = codec.geometry().digest().to_owned();
+    let logical_namespace_addresses = u64::try_from(codec.geometry().logical_address_count())
+        .map_err(|_| {
+            HarnessError::InvalidSpec("logical namespace exceeds u64 receipt range".into())
+        })?;
+
+    let mut state = match VirtualFlyQdnState::zero(codec, system, virtualization) {
+        Ok(state) => state,
+        Err(error) => {
+            return failed_receipt(
+                spec,
+                workload,
+                operation_support,
+                experiment_id,
+                host,
+                revision,
+                revision_url,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
+                classify_virtualization_error(error),
+            );
+        }
+    };
+
+    let mut executor = match VirtualExecutor::new(virtualization) {
+        Ok(executor) => executor,
+        Err(error) => {
+            let storage = state.storage_snapshot();
+            return failed_receipt(
+                spec,
+                workload,
+                operation_support,
+                experiment_id,
+                host,
+                revision,
+                revision_url,
+                estimated_logical_bytes,
+                rss_before_bytes,
+                peak_before_bytes,
+                FailureEvidence::materialized(
+                    duration_ns(construction_start.elapsed()),
+                    None,
+                    u64::try_from(state.logical_state_bytes()).ok(),
+                    u64::try_from(storage.facts().materialized_payload_bytes).ok(),
+                    u64::try_from(state.materialized_page_count()).unwrap_or(u64::MAX),
+                ),
+                classify_virtualization_error(error),
+            );
+        }
+    };
+    let construction_ns = duration_ns(construction_start.elapsed());
+
+    let execution_start = Instant::now();
+    if let Err(error) = executor.apply_operations(&mut state, &operations) {
+        let execution_ns = duration_ns(execution_start.elapsed());
+        let storage = state.storage_snapshot();
+        return failed_receipt(
+            spec,
+            workload,
+            operation_support,
+            experiment_id,
+            host,
+            revision,
+            revision_url,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+            FailureEvidence::materialized(
+                construction_ns,
+                Some(execution_ns),
+                u64::try_from(state.logical_state_bytes()).ok(),
+                u64::try_from(storage.facts().materialized_payload_bytes).ok(),
+                u64::try_from(state.materialized_page_count()).unwrap_or(u64::MAX),
+            ),
+            classify_virtualization_error(error),
+        );
+    }
+    let execution_ns = duration_ns(execution_start.elapsed());
+
+    let snapshot_start = Instant::now();
+    let snapshot = state.observation_snapshot();
+    let storage = state.storage_snapshot();
+    let page_counts = state.page_kind_counts();
+    let metrics = executor.metrics();
+    let snapshot_ns = duration_ns(snapshot_start.elapsed());
+
+    // Freeze candidate memory evidence before dense-oracle construction.
+    let peak_after = linux_peak_rss_bytes();
+    let rss_after = linux_current_rss_bytes();
+
+    let materialized_address_count = u64::try_from(storage.facts().materialized_address_count)
+        .map_err(|_| {
+            HarnessError::Serialization("materialized address count exceeds u64".into())
+        })?;
+    let materialized_payload_bytes = u64::try_from(storage.facts().materialized_payload_bytes)
+        .map_err(|_| HarnessError::Serialization("materialized payload bytes exceed u64".into()))?;
+    let materialized_page_count = u64::try_from(state.materialized_page_count())
+        .map_err(|_| HarnessError::Serialization("materialized page count exceeds u64".into()))?;
+    let tracked_state_resident_bytes = u64::try_from(state.tracked_resident_bytes())
+        .map_err(|_| HarnessError::Serialization("tracked state bytes exceed u64".into()))?;
+    let worker_scratch_capacity_bytes = u64::try_from(executor.worker_scratch_capacity_bytes())
+        .map_err(|_| HarnessError::Serialization("worker scratch bytes exceed u64".into()))?;
+    let peak_tracked_active_bytes = u64::try_from(metrics.peak_tracked_active_bytes)
+        .map_err(|_| HarnessError::Serialization("tracked active bytes exceed u64".into()))?;
+
+    let candidate_measurements = StructuredCandidateMeasurements {
+        body_id_source: spec.fly.body_id_source.clone(),
+        macro_node_count,
+        body_ids_digest,
+        source_identity_digest,
+        geometry_digest,
+        logical_namespace_addresses,
+        materialized_address_count,
+        materialized_page_count,
+        sparse_page_count: u64::try_from(page_counts.sparse).unwrap_or(u64::MAX),
+        bitmap_page_count: u64::try_from(page_counts.bitmap).unwrap_or(u64::MAX),
+        dense_page_count: u64::try_from(page_counts.dense).unwrap_or(u64::MAX),
+        tracked_state_resident_bytes,
+        worker_scratch_capacity_bytes,
+        peak_tracked_active_bytes,
+        page_span: spec.fly.page_span,
+        tile_span: spec.fly.tile_span,
+        sparse_max_occupancy: spec.fly.sparse_max_occupancy,
+        bitmap_max_occupancy: spec.fly.bitmap_max_occupancy,
+        scratch_domains: spec.fly.scratch_domains,
+        owner_count: spec.fly.owner_count,
+        max_cached_states: spec.fly.max_cached_states,
+        max_in_flight_generations: spec.fly.max_in_flight_generations,
+        cached_state_count: u64::try_from(executor.cached_state_count()).unwrap_or(u64::MAX),
+        peak_retained_cache_states: metrics.peak_retained_cache_states,
+        cache_hits: metrics.cache_hits,
+        cache_misses: metrics.cache_misses,
+        invariant_reuses: metrics.invariant_reuses,
+        reused_generations: metrics.cache_hits.saturating_add(metrics.invariant_reuses),
+        recomputed_generations: metrics.cache_misses,
+        worker_dispatches: metrics.worker_dispatches,
+        addresses_scanned: u64::try_from(metrics.addresses_scanned).unwrap_or(u64::MAX),
+        addresses_soundly_skipped: u64::try_from(metrics.addresses_soundly_skipped)
+            .unwrap_or(u64::MAX),
+        fourier_lanes_executed: u64::try_from(metrics.fourier_lanes_executed).unwrap_or(u64::MAX),
+        fourier_lanes_pruned: u64::try_from(metrics.fourier_lanes_pruned).unwrap_or(u64::MAX),
+    };
+
+    let oracle_start = Instant::now();
+    let oracle_agreement = match estimate_dense_bytes(system) {
+        None => OracleAgreement::Unavailable {
+            reason: "dense oracle size overflows the platform address space".into(),
+        },
+        Some(bytes) if bytes > spec.oracle_logical_limit_bytes => OracleAgreement::Unavailable {
+            reason: format!(
+                "dense oracle logical bytes {bytes} exceed oracle limit {}",
+                spec.oracle_logical_limit_bytes
+            ),
+        },
+        Some(_) => match DenseState::zero(system) {
+            Err(error) => OracleAgreement::Unavailable {
+                reason: format!("dense oracle construction failed: {error}"),
+            },
+            Ok(mut dense) => match dense.apply_operations(&operations) {
+                Err(error) => OracleAgreement::Unavailable {
+                    reason: format!("dense oracle execution failed: {error}"),
+                },
+                Ok(()) => match fly_dense_max_error(&state, &dense) {
+                    Ok(max_error) if max_error == 0.0 => OracleAgreement::Matched {
+                        tolerance: 0.0,
+                        max_error,
+                    },
+                    Ok(max_error) => OracleAgreement::Mismatch {
+                        tolerance: 0.0,
+                        max_error,
+                    },
+                    Err(error) => OracleAgreement::Unavailable {
+                        reason: error.to_string(),
+                    },
+                },
+            },
+        },
+    };
+    let oracle_verification_ns = duration_ns(oracle_start.elapsed());
+
+    finalize_receipt(ReceiptBody {
+        experiment_id,
+        source_revision: revision,
+        source_revision_url: revision_url,
+        representation: spec.representation,
+        representation_id: spec.representation.id().into(),
+        compute_backend: compute_backend(spec.representation).into(),
+        worker_count: 1,
+        dimension: spec.dimension,
+        subsystems: spec.subsystems,
+        rounds: spec.rounds,
+        max_logical_bytes: spec.max_logical_bytes,
+        oracle_logical_limit_bytes: spec.oracle_logical_limit_bytes,
+        workload,
+        operation_support,
+        host,
+        memory: MemoryMeasurements {
+            estimated_logical_bytes,
+            logical_bytes: u64::try_from(snapshot.logical_bytes).ok(),
+            materialized_payload_bytes: Some(materialized_payload_bytes),
+            resident_working_set_bytes: Some(peak_tracked_active_bytes),
+            rss_before_bytes,
+            rss_after_bytes: rss_after,
+            peak_process_rss_before_bytes: peak_before_bytes,
+            peak_process_rss_bytes: peak_after,
+            incremental_peak_rss_bytes: peak_delta(peak_before_bytes, peak_after),
+            allocation_count: None,
+            materialization_count: Some(materialized_page_count),
+        },
+        timings: TimingMeasurements {
+            construction_ns: Some(construction_ns),
+            execution_ns: Some(execution_ns),
+            snapshot_ns: Some(snapshot_ns),
+            oracle_verification_ns: Some(oracle_verification_ns),
+        },
+        final_state_digest: Some(snapshot.state_digest),
+        norm_squared: Some(snapshot.norm_squared),
+        oracle_agreement,
+        structured_candidate: Some(candidate_measurements),
+        outcome: RunOutcome::Success,
+    })
+}
+
+fn classify_virtualization_error(error: VirtualizationError) -> RunOutcome {
+    match error {
+        VirtualizationError::GateA(FlyQdnError::StateSizeOverflow) => RunOutcome::SizeOverflow {
+            reason: error.to_string(),
+        },
+        VirtualizationError::GateA(FlyQdnError::AllocationFailed { .. })
+        | VirtualizationError::AllocationFailed { .. } => RunOutcome::AllocationFailed {
+            reason: error.to_string(),
+        },
+        VirtualizationError::GateA(FlyQdnError::InsufficientLogicalAddresses {
+            required,
+            available,
+        }) => RunOutcome::LogicalNamespaceInsufficient {
+            required_addresses: u64::try_from(required).unwrap_or(u64::MAX),
+            available_addresses: u64::try_from(available).unwrap_or(u64::MAX),
+        },
+        VirtualizationError::GateA(FlyQdnError::UnsupportedOperation { .. })
+        | VirtualizationError::UnsupportedOperation { .. } => RunOutcome::Unsupported {
+            reason: error.to_string(),
+        },
+        _ => RunOutcome::ExecutionFailed {
+            reason: error.to_string(),
+        },
+    }
+}
+
+fn fly_dense_max_error(
+    candidate: &VirtualFlyQdnState,
+    dense: &DenseState,
+) -> Result<f64, HarnessError> {
+    if candidate.spec() != dense.spec() {
+        return Err(HarnessError::Workload(
+            "oracle and Fly-Phi664 SystemSpec differ".into(),
+        ));
+    }
+    let amplitudes = candidate
+        .reconstruct()
+        .map_err(|error| HarnessError::Workload(error.to_string()))?;
+    let mut max_error = 0.0f64;
+    for (candidate, reference) in amplitudes.iter().zip(dense.amplitudes()) {
+        max_error = max_error.max((*candidate - *reference).norm());
+    }
+    Ok(max_error)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -771,11 +1274,13 @@ impl FailureEvidence {
         construction_ns: u64,
         execution_ns: Option<u64>,
         logical_bytes: Option<u64>,
+        materialized_payload_bytes: Option<u64>,
+        materialization_count: u64,
     ) -> Self {
         Self {
             logical_bytes,
-            materialized_payload_bytes: logical_bytes,
-            materialization_count: 1,
+            materialized_payload_bytes,
+            materialization_count,
             construction_ns,
             execution_ns,
         }
@@ -804,7 +1309,7 @@ fn failed_receipt(
         source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
-        compute_backend: "scalar-cpu".into(),
+        compute_backend: compute_backend(spec.representation).into(),
         worker_count: 1,
         dimension: spec.dimension,
         subsystems: spec.subsystems,
@@ -836,6 +1341,7 @@ fn failed_receipt(
         final_state_digest: None,
         norm_squared: None,
         oracle_agreement: OracleAgreement::NotApplicable,
+        structured_candidate: None,
         outcome,
     })
 }
@@ -950,7 +1456,17 @@ pub fn workload_identity(
     }
 }
 
-fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
+fn compute_backend(representation: RepresentationKind) -> &'static str {
+    match representation {
+        RepresentationKind::Dense | RepresentationKind::PrimeStabilizer => "scalar-cpu",
+        RepresentationKind::FlyPhi664Virtualized => "virtualized-serial-cpu",
+    }
+}
+
+fn experiment_id(
+    spec: &ExperimentSpec,
+    workload: &WorkloadIdentity,
+) -> Result<String, HarnessError> {
     let mut hasher = SemanticHasher::new();
     hash_bytes(&mut hasher, b"qsolqec.memorywall.experiment.v1");
     hash_bytes(&mut hasher, spec.representation.id().as_bytes());
@@ -966,8 +1482,28 @@ fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
         None => hasher.update(&[0]),
     }
     hasher.update(&spec.oracle_logical_limit_bytes.to_be_bytes());
-    hash_bytes(&mut hasher, b"scalar-cpu");
-    format!("sha256:{}", hasher.finalize_hex())
+    hash_bytes(&mut hasher, compute_backend(spec.representation).as_bytes());
+
+    if spec.representation == RepresentationKind::FlyPhi664Virtualized {
+        hash_bytes(&mut hasher, b"male-cns:v1.0");
+        let body_ids_digest = spec.fly.canonical_body_ids_digest()?;
+        spec.fly.validate_body_id_source(&body_ids_digest)?;
+        hash_bytes(&mut hasher, body_ids_digest.as_bytes());
+        for value in [
+            spec.fly.page_span as u128,
+            spec.fly.tile_span as u128,
+            spec.fly.sparse_max_occupancy as u128,
+            spec.fly.bitmap_max_occupancy as u128,
+            spec.fly.scratch_domains as u128,
+            u128::from(spec.fly.owner_count),
+            spec.fly.max_cached_states as u128,
+            spec.fly.max_in_flight_generations as u128,
+        ] {
+            hasher.update(&value.to_be_bytes());
+        }
+    }
+
+    Ok(format!("sha256:{}", hasher.finalize_hex()))
 }
 
 fn hash_bytes(hasher: &mut SemanticHasher, bytes: &[u8]) {
@@ -987,6 +1523,7 @@ pub fn estimate_logical_bytes(
             let bytes = scalars.checked_mul(std::mem::size_of::<usize>() as u128)?;
             u64::try_from(bytes).ok()
         }
+        RepresentationKind::FlyPhi664Virtualized => estimate_dense_bytes(system),
     }
 }
 
@@ -1161,6 +1698,26 @@ mod tests {
             estimate_logical_bytes(RepresentationKind::PrimeStabilizer, system),
             Some(12 * 25 * std::mem::size_of::<usize>() as u64)
         );
+        assert_eq!(
+            estimate_logical_bytes(RepresentationKind::FlyPhi664Virtualized, system),
+            Some(4096 * 16)
+        );
+    }
+
+    #[test]
+    fn invalid_fly_settings_reject_before_logical_budget_short_circuit() {
+        let mut zero_page = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 1, 1);
+        zero_page.max_logical_bytes = Some(0);
+        zero_page.fly.page_span = 0;
+        let error = run_experiment(&zero_page).unwrap_err().to_string();
+        assert!(error.contains("virtual page span must be nonzero"));
+
+        let mut undersized_tile =
+            ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 3, 1, 1);
+        undersized_tile.max_logical_bytes = Some(0);
+        undersized_tile.fly.tile_span = 2;
+        let error = run_experiment(&undersized_tile).unwrap_err().to_string();
+        assert!(error.contains("worker tile span 2 is smaller than local dimension 3"));
     }
 
     #[test]
@@ -1203,6 +1760,220 @@ mod tests {
             OracleAgreement::Matched { .. }
         ));
         assert!(receipt.body.final_state_digest.is_some());
+    }
+
+    #[test]
+    fn fly_small_run_matches_dense_and_reports_structured_metrics() {
+        let spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 3, 2);
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(receipt.body.outcome.is_success());
+        assert_eq!(receipt.body.operation_support, OperationSupportClass::Exact);
+        assert!(matches!(
+            receipt.body.oracle_agreement,
+            OracleAgreement::Matched {
+                tolerance: 0.0,
+                max_error: 0.0
+            }
+        ));
+        assert_eq!(receipt.body.memory.logical_bytes, Some(8 * 16));
+        assert!(receipt.body.memory.materialized_payload_bytes.is_some());
+        assert!(receipt.body.memory.resident_working_set_bytes.is_some());
+
+        let candidate = receipt.body.structured_candidate.as_ref().unwrap();
+        assert_eq!(candidate.macro_node_count, 2);
+        assert_eq!(candidate.logical_namespace_addresses, 2 * 664);
+        assert!(candidate.materialized_address_count > 0);
+        assert!(candidate.materialized_page_count > 0);
+        assert_eq!(candidate.recomputed_generations, candidate.cache_misses);
+        assert_eq!(
+            candidate.reused_generations,
+            candidate.cache_hits + candidate.invariant_reuses
+        );
+        assert!(candidate.peak_tracked_active_bytes >= candidate.worker_scratch_capacity_bytes);
+        assert_eq!(candidate.page_span, spec.fly.page_span);
+        assert_eq!(candidate.tile_span, spec.fly.tile_span);
+        assert_eq!(
+            candidate.sparse_max_occupancy,
+            spec.fly.sparse_max_occupancy
+        );
+        assert_eq!(
+            candidate.bitmap_max_occupancy,
+            spec.fly.bitmap_max_occupancy
+        );
+        assert_eq!(candidate.scratch_domains, spec.fly.scratch_domains);
+        assert_eq!(candidate.owner_count, spec.fly.owner_count);
+        assert_eq!(candidate.max_cached_states, spec.fly.max_cached_states);
+        assert!(candidate.peak_retained_cache_states <= spec.fly.max_cached_states as u64);
+        assert_eq!(
+            candidate.max_in_flight_generations,
+            spec.fly.max_in_flight_generations
+        );
+    }
+
+    #[test]
+    fn fly_failure_receipt_preserves_sparse_payload_bytes() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 10, 1);
+        spec.fly.tile_span = usize::MAX;
+
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::AllocationFailed { .. }
+        ));
+        assert_eq!(receipt.body.memory.logical_bytes, Some(16 * 1024));
+        assert_eq!(receipt.body.memory.materialized_payload_bytes, Some(16));
+        assert_eq!(receipt.body.memory.materialization_count, Some(1));
+    }
+
+    #[test]
+    fn explicit_host_and_memory_baseline_are_preserved_in_receipt() {
+        let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
+        let baseline = ProcessMemoryBaseline {
+            rss_bytes: Some(1234),
+            peak_rss_bytes: Some(5678),
+        };
+        let host = HostInfo {
+            schema: HOST_SCHEMA.into(),
+            os: "synthetic-os".into(),
+            arch: "synthetic-arch".into(),
+            hostname: Some("synthetic-host".into()),
+            cpu_model: Some("synthetic-cpu".into()),
+            logical_cpu_count: Some(7),
+            total_memory_bytes: Some(9999),
+            gpus: vec![GpuInfo {
+                name: "synthetic-gpu".into(),
+                memory_total_bytes: Some(123456),
+                driver_version: Some("synthetic-driver".into()),
+            }],
+        };
+
+        let receipt = run_experiment_with_context(&spec, host.clone(), baseline).unwrap();
+
+        assert_eq!(receipt.body.host, host);
+        assert_eq!(receipt.body.memory.rss_before_bytes, Some(1234));
+        assert_eq!(
+            receipt.body.memory.peak_process_rss_before_bytes,
+            Some(5678)
+        );
+    }
+
+    #[test]
+    fn fly_namespace_exhaustion_is_a_structured_terminal_point() {
+        let spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 11, 1);
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::LogicalNamespaceInsufficient {
+                required_addresses: 2048,
+                available_addresses: 1328
+            }
+        ));
+        assert!(receipt.body.final_state_digest.is_none());
+    }
+
+    #[test]
+    fn fly_body_id_order_does_not_change_experiment_identity() {
+        let first = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        let mut second = first.clone();
+        second.fly.body_ids.reverse();
+
+        let first_receipt = run_experiment(&first).unwrap();
+        let second_receipt = run_experiment(&second).unwrap();
+
+        assert_eq!(
+            first_receipt.body.experiment_id,
+            second_receipt.body.experiment_id
+        );
+        assert_eq!(
+            first_receipt
+                .body
+                .structured_candidate
+                .as_ref()
+                .unwrap()
+                .body_ids_digest,
+            second_receipt
+                .body
+                .structured_candidate
+                .as_ref()
+                .unwrap()
+                .body_ids_digest
+        );
+    }
+
+    #[test]
+    fn fly_builtin_source_label_rejects_non_builtin_membership() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        spec.fly.body_ids = vec![10, 20];
+
+        let error = run_experiment(&spec).unwrap_err().to_string();
+        assert!(error.contains(
+            "body_id_source=builtin-r7-fixture requires exactly the built-in R7 body-ID membership"
+        ));
+    }
+
+    #[test]
+    fn fly_external_source_label_accepts_external_membership() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        spec.fly.body_ids = vec![10, 20];
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+
+        let receipt = run_experiment(&spec).unwrap();
+        assert!(receipt.body.outcome.is_success());
+        assert_eq!(
+            receipt
+                .body
+                .structured_candidate
+                .as_ref()
+                .unwrap()
+                .body_id_source,
+            FlyBodyIdSource::ExternalCanonicalList
+        );
+    }
+
+    #[test]
+    fn fly_experiment_identity_is_recomputable_from_retained_body_id_digest() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        spec.fly.body_ids = vec![10, 20];
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+
+        let system = spec.system().unwrap();
+        let operations = workload_operations(system, spec.rounds).unwrap();
+        let workload = workload_identity(system, spec.rounds, &operations);
+        let receipt = run_experiment(&spec).unwrap();
+        let candidate = receipt.body.structured_candidate.as_ref().unwrap();
+
+        let mut hasher = SemanticHasher::new();
+        hash_bytes(&mut hasher, b"qsolqec.memorywall.experiment.v1");
+        hash_bytes(&mut hasher, spec.representation.id().as_bytes());
+        hasher.update(&(spec.dimension as u128).to_be_bytes());
+        hasher.update(&(spec.subsystems as u128).to_be_bytes());
+        hasher.update(&(spec.rounds as u128).to_be_bytes());
+        hash_bytes(&mut hasher, workload.id.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(&spec.oracle_logical_limit_bytes.to_be_bytes());
+        hash_bytes(&mut hasher, compute_backend(spec.representation).as_bytes());
+        hash_bytes(&mut hasher, b"male-cns:v1.0");
+        hash_bytes(&mut hasher, candidate.body_ids_digest.as_bytes());
+        for value in [
+            candidate.page_span as u128,
+            candidate.tile_span as u128,
+            candidate.sparse_max_occupancy as u128,
+            candidate.bitmap_max_occupancy as u128,
+            candidate.scratch_domains as u128,
+            u128::from(candidate.owner_count),
+            candidate.max_cached_states as u128,
+            candidate.max_in_flight_generations as u128,
+        ] {
+            hasher.update(&value.to_be_bytes());
+        }
+
+        assert_eq!(
+            receipt.body.experiment_id,
+            format!("sha256:{}", hasher.finalize_hex())
+        );
     }
 
     #[test]
@@ -1250,6 +2021,15 @@ mod tests {
             stabilizer.body.operation_support,
             OperationSupportClass::Exact
         );
+
+        let fly = run_experiment(&ExperimentSpec::new(
+            RepresentationKind::FlyPhi664Virtualized,
+            2,
+            2,
+            1,
+        ))
+        .unwrap();
+        assert_eq!(fly.body.operation_support, OperationSupportClass::Exact);
     }
 
     #[test]
@@ -1288,7 +2068,7 @@ mod tests {
             Some(128),
             linux_current_rss_bytes(),
             linux_peak_rss_bytes(),
-            FailureEvidence::materialized(11, Some(22), Some(128)),
+            FailureEvidence::materialized(11, Some(22), Some(128), Some(128), 1),
             RunOutcome::AllocationFailed {
                 reason: "synthetic post-construction failure".into(),
             },
@@ -1325,5 +2105,7 @@ mod tests {
         let decoded: MemoryWallReceipt = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.body.experiment_id, receipt.body.experiment_id);
         assert_eq!(decoded.receipt_id, receipt.receipt_id);
+        assert_eq!(decoded.schema, RECEIPT_SCHEMA);
+        assert_eq!(decoded.schema, "qsolqec.memorywall.receipt.v2");
     }
 }

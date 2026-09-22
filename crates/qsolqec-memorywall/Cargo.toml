@@ -11,6 +11,8 @@ num-complex = "0.4"
 qsolqec-core = { path = "../qsolqec-core" }
 qsolqec-dense = { path = "../qsolqec-dense" }
 qsolqec-glassbox = { path = "../qsolqec-glassbox" }
+qsolqec-fly-phi664 = { path = "../qsolqec-fly-phi664" }
+qsolqec-fly-qdn = { path = "../qsolqec-fly-qdn" }
 qsolqec-ops = { path = "../qsolqec-ops" }
 qsolqec-stabilizer = { path = "../qsolqec-stabilizer" }
 serde = { version = "1", features = ["derive"] }

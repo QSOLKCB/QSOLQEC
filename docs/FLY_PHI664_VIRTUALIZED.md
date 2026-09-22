@@ -146,6 +146,12 @@ For an operation sequence, newly computed cache generations remain pending
 until the complete requested sequence succeeds. A failed partial sequence does
 not publish any newly computed generation as reusable authoritative state.
 
+Committed cache entries and transaction-staged generations share the configured
+`max_cached_states` capacity. When no cache slot is available, execution still
+proceeds exactly but the new intermediate generation is not retained for later
+reuse. This keeps batch memory bounded by cache configuration rather than by
+operation count.
+
 The live state is replaced only after complete success.
 
 ## OPT-FAN-001: shared immutable tile materialization

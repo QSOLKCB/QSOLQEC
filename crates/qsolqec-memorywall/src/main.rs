@@ -1,11 +1,16 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use qsolqec_memorywall::{
-    probe_host, run_experiment, source_revision, source_revision_url, ExperimentSpec, HarnessError,
-    MemoryWallReceipt, RepresentationKind, SweepChildFailure, SweepReceipt, SWEEP_SCHEMA,
+    capture_process_memory_baseline, probe_host, run_experiment_with_context, source_revision,
+    source_revision_url, ExperimentSpec, FlyBodyIdSource, HarnessError, MemoryWallReceipt,
+    RepresentationKind, SweepChildFailure, SweepReceipt, SWEEP_SCHEMA,
 };
+
+const FROZEN_FLY_BODY_IDS_ENV: &str = "QSOLQEC_FROZEN_FLY_BODY_IDS";
 
 fn main() -> ExitCode {
     match real_main() {
@@ -50,7 +55,11 @@ fn run_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         spec.oracle_logical_limit_bytes = bytes;
     }
 
-    let receipt = run_experiment(&spec)?;
+    let host = probe_host();
+    let baseline = capture_process_memory_baseline();
+    configure_fly_spec(&mut spec, args)?;
+
+    let receipt = run_experiment_with_context(&spec, host, baseline)?;
     let output = option_value(args, "--output").map(PathBuf::from);
     emit_json(&receipt, output.as_deref())?;
     Ok(())
@@ -79,6 +88,10 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let oracle_limit_mib =
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
+    let fly_args = FrozenFlyChildArgs::from_sweep_args(args)?;
+    if fly_args.has_any() && !representations.contains(&RepresentationKind::FlyPhi664Virtualized) {
+        return Err("Fly-specific options require fly-phi664 in --representations".into());
+    }
 
     let mut points = Vec::new();
     let mut child_failures = Vec::new();
@@ -106,8 +119,14 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 child_args.push("--oracle-limit-mib".into());
                 child_args.push(value.clone());
             }
+            let mut command = Command::new(&executable);
+            command.args(&child_args);
+            if *representation == RepresentationKind::FlyPhi664Virtualized {
+                command.args(&fly_args.args);
+            }
+            configure_frozen_snapshot_environment(&mut command, *representation, &fly_args);
 
-            let output = Command::new(&executable).args(&child_args).output()?;
+            let output = command.output()?;
             if !output.status.success() {
                 child_failures.push(child_failure_record(
                     *representation,
@@ -209,8 +228,224 @@ fn parse_representation(value: &str) -> Result<RepresentationKind, Box<dyn std::
     match value {
         "dense" => Ok(RepresentationKind::Dense),
         "stabilizer" | "prime-stabilizer" => Ok(RepresentationKind::PrimeStabilizer),
-        _ => Err(format!("unknown representation {value:?}; use dense or stabilizer").into()),
+        "fly-phi664" | "fly" | "virtualized" => Ok(RepresentationKind::FlyPhi664Virtualized),
+        _ => Err(
+            format!("unknown representation {value:?}; use dense, stabilizer, or fly-phi664")
+                .into(),
+        ),
     }
+}
+
+const FLY_VALUE_FLAGS: [&str; 9] = [
+    "--fly-body-ids",
+    "--fly-page-span",
+    "--fly-tile-span",
+    "--fly-sparse-max",
+    "--fly-bitmap-max",
+    "--fly-scratch-domains",
+    "--fly-owner-count",
+    "--fly-cache-states",
+    "--fly-max-in-flight",
+];
+
+fn configure_fly_spec(
+    spec: &mut ExperimentSpec,
+    args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let frozen_body_ids_path = std::env::var_os(FROZEN_FLY_BODY_IDS_ENV);
+    let has_fly_option = frozen_body_ids_path.is_some()
+        || FLY_VALUE_FLAGS
+            .iter()
+            .any(|flag| args.iter().any(|argument| argument == flag));
+
+    if spec.representation != RepresentationKind::FlyPhi664Virtualized {
+        if has_fly_option {
+            return Err("Fly-specific options require --representation fly-phi664".into());
+        }
+        return Ok(());
+    }
+
+    if frozen_body_ids_path.is_some() && optional_value_once(args, "--fly-body-ids")?.is_some() {
+        return Err("frozen Fly body-ID snapshot conflicts with --fly-body-ids".into());
+    }
+
+    if let Some(path) = frozen_body_ids_path {
+        spec.fly.body_ids = parse_body_id_file(std::path::Path::new(&path))?;
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+    } else if let Some(path) = optional_value_once(args, "--fly-body-ids")? {
+        spec.fly.body_ids = parse_body_id_file(std::path::Path::new(path))?;
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+    }
+    if let Some(value) = optional_usize(args, "--fly-page-span")? {
+        spec.fly.page_span = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-tile-span")? {
+        spec.fly.tile_span = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-sparse-max")? {
+        spec.fly.sparse_max_occupancy = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-bitmap-max")? {
+        spec.fly.bitmap_max_occupancy = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-scratch-domains")? {
+        spec.fly.scratch_domains = value;
+    }
+    if let Some(value) = optional_u32(args, "--fly-owner-count")? {
+        spec.fly.owner_count = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-cache-states")? {
+        spec.fly.max_cached_states = value;
+    }
+    if let Some(value) = optional_usize(args, "--fly-max-in-flight")? {
+        spec.fly.max_in_flight_generations = value;
+    }
+    Ok(())
+}
+
+struct FrozenFlyChildArgs {
+    args: Vec<String>,
+    frozen_body_ids_path: Option<PathBuf>,
+}
+
+impl FrozenFlyChildArgs {
+    fn has_any(&self) -> bool {
+        !self.args.is_empty() || self.frozen_body_ids_path.is_some()
+    }
+
+    fn from_sweep_args(args: &[String]) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut output = Vec::new();
+        let mut frozen_body_ids_path = None;
+
+        for flag in FLY_VALUE_FLAGS {
+            let Some(value) = optional_value_once(args, flag)? else {
+                continue;
+            };
+
+            if flag == "--fly-body-ids" {
+                let mut body_ids = parse_body_id_file(std::path::Path::new(value))?;
+                body_ids.sort_unstable();
+                frozen_body_ids_path = Some(write_frozen_body_ids(&body_ids)?);
+            } else {
+                output.push(flag.to_owned());
+                output.push(value.to_owned());
+            }
+        }
+
+        Ok(Self {
+            args: output,
+            frozen_body_ids_path,
+        })
+    }
+}
+
+impl Drop for FrozenFlyChildArgs {
+    fn drop(&mut self) {
+        if let Some(path) = self.frozen_body_ids_path.take() {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn configure_frozen_snapshot_environment(
+    command: &mut Command,
+    representation: RepresentationKind,
+    fly_args: &FrozenFlyChildArgs,
+) {
+    command.env_remove(FROZEN_FLY_BODY_IDS_ENV);
+    if representation == RepresentationKind::FlyPhi664Virtualized {
+        if let Some(path) = &fly_args.frozen_body_ids_path {
+            command.env(FROZEN_FLY_BODY_IDS_ENV, path.as_os_str());
+        }
+    }
+}
+
+fn write_frozen_body_ids(body_ids: &[u64]) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+
+    for attempt in 0..100u32 {
+        let path = std::env::temp_dir().join(format!(
+            "qsolqec-memorywall-frozen-bodyids-{}-{stamp}-{attempt}.txt",
+            std::process::id()
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                for body_id in body_ids {
+                    writeln!(file, "{body_id}")?;
+                }
+                file.sync_all()?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Err("unable to create frozen Fly body-ID snapshot".into())
+}
+
+fn optional_value_once<'a>(
+    args: &'a [String],
+    flag: &str,
+) -> Result<Option<&'a str>, Box<dyn std::error::Error>> {
+    let positions: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, argument)| (argument == flag).then_some(index))
+        .collect();
+    if positions.len() > 1 {
+        return Err(format!("{flag} may be supplied at most once").into());
+    }
+    let Some(index) = positions.first().copied() else {
+        return Ok(None);
+    };
+    let value = args
+        .get(index + 1)
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| format!("{flag} requires a value"))?;
+    Ok(Some(value))
+}
+
+fn optional_usize(
+    args: &[String],
+    flag: &str,
+) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+    optional_value_once(args, flag)?
+        .map(|value| parse_usize(value, flag))
+        .transpose()
+}
+
+fn optional_u32(args: &[String], flag: &str) -> Result<Option<u32>, Box<dyn std::error::Error>> {
+    optional_value_once(args, flag)?
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|_| format!("{flag} expects a non-negative u32, got {value:?}").into())
+        })
+        .transpose()
+}
+
+fn parse_body_id_file(path: &std::path::Path) -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+    let text = fs::read_to_string(path)?;
+    let mut body_ids = Vec::new();
+    for (line_number, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let body_id = trimmed.parse::<u64>().map_err(|_| {
+            format!(
+                "{}:{} is not a valid unsigned bodyId: {trimmed:?}",
+                path.display(),
+                line_number + 1
+            )
+        })?;
+        body_ids.push(body_id);
+    }
+    if body_ids.is_empty() {
+        return Err(format!("{} contains no bodyId values", path.display()).into());
+    }
+    Ok(body_ids)
 }
 
 fn optional_mib(args: &[String], flag: &str) -> Result<Option<u64>, Box<dyn std::error::Error>> {
@@ -262,14 +497,24 @@ USAGE:
   qsolqec-memorywall probe [--output FILE]
 
   qsolqec-memorywall run \\
-    --representation dense|stabilizer \\
+    --representation dense|stabilizer|fly-phi664 \\
     --dimension D --subsystems N --rounds R \\
     [--max-logical-mib MIB] [--oracle-limit-mib MIB] [--output FILE]
+    [--fly-body-ids FILE]
+    [--fly-page-span N] [--fly-tile-span N]
+    [--fly-sparse-max N] [--fly-bitmap-max N]
+    [--fly-scratch-domains N] [--fly-owner-count N]
+    [--fly-cache-states N] [--fly-max-in-flight N]
 
   qsolqec-memorywall sweep \\
-    --representations dense,stabilizer \\
+    --representations dense,stabilizer,fly-phi664 \\
     --dimension D --start-n N --end-n N --step S --rounds R \\
     [--max-logical-mib MIB] [--oracle-limit-mib MIB] [--output FILE]
+    [--fly-body-ids FILE]
+    [--fly-page-span N] [--fly-tile-span N]
+    [--fly-sparse-max N] [--fly-bitmap-max N]
+    [--fly-scratch-domains N] [--fly-owner-count N]
+    [--fly-cache-states N] [--fly-max-in-flight N]
 
 Each sweep point executes as a fresh child process so per-point Linux VmHWM
 measurements are not contaminated by earlier representations."
@@ -301,6 +546,127 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("requires an integer MiB value"));
+    }
+
+    #[test]
+    fn fly_representation_aliases_parse() {
+        for value in ["fly-phi664", "fly", "virtualized"] {
+            assert_eq!(
+                parse_representation(value).unwrap(),
+                RepresentationKind::FlyPhi664Virtualized
+            );
+        }
+    }
+
+    #[test]
+    fn fly_options_configure_only_the_fly_representation() {
+        let args = vec![
+            "--fly-page-span".to_owned(),
+            "64".to_owned(),
+            "--fly-tile-span".to_owned(),
+            "32".to_owned(),
+            "--fly-scratch-domains".to_owned(),
+            "2".to_owned(),
+        ];
+        let mut fly = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 3, 1);
+        configure_fly_spec(&mut fly, &args).unwrap();
+        assert_eq!(fly.fly.page_span, 64);
+        assert_eq!(fly.fly.tile_span, 32);
+        assert_eq!(fly.fly.scratch_domains, 2);
+
+        let mut dense = ExperimentSpec::new(RepresentationKind::Dense, 2, 3, 1);
+        assert!(configure_fly_spec(&mut dense, &args).is_err());
+    }
+
+    #[test]
+    fn sweep_freezes_external_body_ids_before_child_runs() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let original = std::env::temp_dir().join(format!(
+            "qsolqec-memorywall-source-bodyids-{}-{stamp}.txt",
+            std::process::id()
+        ));
+        fs::write(&original, "556329\n12781\n").unwrap();
+
+        let args = vec![
+            "--fly-body-ids".to_owned(),
+            original.to_string_lossy().into_owned(),
+            "--fly-page-span".to_owned(),
+            "64".to_owned(),
+        ];
+        let frozen = FrozenFlyChildArgs::from_sweep_args(&args).unwrap();
+        let frozen_path = frozen.frozen_body_ids_path.as_ref().unwrap().clone();
+
+        fs::write(&original, "12781\n556329\n999999\n").unwrap();
+
+        assert_ne!(frozen_path, original);
+        assert_eq!(
+            parse_body_id_file(&frozen_path).unwrap(),
+            vec![12781, 556329]
+        );
+        assert!(!frozen
+            .args
+            .iter()
+            .any(|argument| argument == "--fly-body-ids"));
+        assert!(frozen
+            .args
+            .windows(2)
+            .any(|pair| pair[0] == "--fly-page-span" && pair[1] == "64"));
+
+        fs::remove_file(original).unwrap();
+    }
+
+    #[test]
+    fn frozen_snapshot_environment_preserves_non_utf8_path_bytes() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let raw = b"/tmp/qsolqec-\xff-bodyids.txt".to_vec();
+        let path = PathBuf::from(std::ffi::OsString::from_vec(raw.clone()));
+        let fly_args = FrozenFlyChildArgs {
+            args: Vec::new(),
+            frozen_body_ids_path: Some(path),
+        };
+        let mut command = Command::new("true");
+        configure_frozen_snapshot_environment(
+            &mut command,
+            RepresentationKind::FlyPhi664Virtualized,
+            &fly_args,
+        );
+
+        let (_, value) = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(FROZEN_FLY_BODY_IDS_ENV))
+            .unwrap();
+        assert_eq!(value.unwrap().as_bytes(), raw.as_slice());
+    }
+
+    #[test]
+    fn sweep_children_clear_inherited_frozen_snapshot_environment() {
+        let fly_args = FrozenFlyChildArgs {
+            args: Vec::new(),
+            frozen_body_ids_path: None,
+        };
+        let mut command = Command::new("true");
+        command.env(FROZEN_FLY_BODY_IDS_ENV, "/tmp/inherited-bodyids.txt");
+
+        configure_frozen_snapshot_environment(&mut command, RepresentationKind::Dense, &fly_args);
+
+        let (_, value) = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(FROZEN_FLY_BODY_IDS_ENV))
+            .unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn frozen_body_id_snapshot_counts_as_a_fly_option() {
+        let frozen = FrozenFlyChildArgs {
+            args: Vec::new(),
+            frozen_body_ids_path: Some(PathBuf::from("/tmp/frozen-bodyids.txt")),
+        };
+        assert!(frozen.has_any());
     }
 
     #[test]

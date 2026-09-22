@@ -147,6 +147,7 @@ See:
 - [docs/STRUCTURED_STORAGE_CONTRACT.md](docs/STRUCTURED_STORAGE_CONTRACT.md)
 - [docs/FLY_PHI664.md](docs/FLY_PHI664.md)
 - [docs/FLY_PHI664_QDN.md](docs/FLY_PHI664_QDN.md)\n- [docs/FLY_PHI664_VIRTUALIZED.md](docs/FLY_PHI664_VIRTUALIZED.md)
+- [docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md](docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md)
 
 ## Historical inspiration
 
@@ -182,8 +183,8 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
 8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
-9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - Gate A complete in PR #10; Gate B implemented in PR #11 (pending merge).
-10. **R9 - Amplitude-memory-wall challenge**.
+9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - complete in PRs #10-#11.
+10. **R9 - Amplitude-memory-wall challenge** - implemented in PR #12 (pending merge).
 11. **R10 - Noise and decoder modules**.
 12. **R11 - Flagship native-ququart experiment**.
 13. **R12 - Sonification observer**.
@@ -196,6 +197,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R8 Gate A: explicit Q(d,n) binding baseline (PR #10).**
+**R9: amplitude-memory-wall challenge (PR #12, pending merge).**
 
-The project now has a Q(d,n)-bound Fly-Phi664 adapter with exact amplitude encoding, deterministic basis-index mapping, explicit reconstruction, Glass Box state observation, exact/unsupported operation classification, and Dense oracle comparison on tractable fixtures. The neutral R7 store remains separate. R8 Gate B - GALAXY/OPT virtualized materialization - is the next roadmap phase.
+The common memory-wall harness now runs Dense, PrimeStabilizer, and the exact R8B Fly-Phi664 virtualized candidate under the same deterministic workload and fresh-process RSS boundary. Fly receipts bind exact MaleCNS/Phi664 source and geometry identity and report logical namespace, materialized addresses/pages, adaptive-page mix, tracked active working set, process RSS, reuse/recompute counters, and exact Dense agreement where the oracle fits. R10 noise and decoder modules are next after R9 merges.

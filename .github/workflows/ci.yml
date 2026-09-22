@@ -154,8 +154,12 @@ jobs:
             --representation stabilizer --dimension 3 --subsystems 2 --rounds 2 \
             --max-logical-mib 64 --oracle-limit-mib 16 \
             > /tmp/memorywall-stabilizer.json
+          cargo run --locked -q -p qsolqec-memorywall -- run \
+            --representation fly-phi664 --dimension 2 --subsystems 3 --rounds 2 \
+            --max-logical-mib 64 --oracle-limit-mib 16 \
+            > /tmp/memorywall-fly.json
           cargo run --locked -q -p qsolqec-memorywall -- sweep \
-            --representations dense,stabilizer --dimension 2 \
+            --representations dense,stabilizer,fly-phi664 --dimension 2 \
             --start-n 2 --end-n 4 --step 2 --rounds 1 \
             --max-logical-mib 64 --oracle-limit-mib 16 \
             > /tmp/memorywall-sweep.json
@@ -168,4 +172,20 @@ jobs:
 
           assert body["max_logical_bytes"] == 64 * 1024 * 1024
           assert body["oracle_logical_limit_bytes"] == 8 * 1024 * 1024
+
+          with open("/tmp/memorywall-fly.json", encoding="utf-8") as handle:
+              fly = json.load(handle)["body"]
+
+          assert fly["representation"] == "fly-phi664-virtualized"
+          assert fly["operation_support"] == "exact"
+          assert fly["outcome"]["status"] == "success"
+          assert fly["oracle_agreement"]["status"] == "matched"
+          assert fly["structured_candidate"]["macro_node_count"] == 2
+          assert fly["structured_candidate"]["logical_namespace_addresses"] == 1328
+          assert fly["structured_candidate"]["materialized_page_count"] >= 1
+
+          with open("/tmp/memorywall-sweep.json", encoding="utf-8") as handle:
+              sweep = json.load(handle)
+
+          assert "fly-phi664-virtualized" in sweep["representations"]
           PY
