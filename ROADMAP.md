@@ -210,7 +210,7 @@ No future representation should claim a memory or performance advantage outside 
 
 ## R6 - Structured logical-memory substrate contract
 
-**Implemented in the current R6 follow-on (pending merge)**
+**Implemented in PR #8 (pending merge)**
 
 R6 defines a representation-independent contract for very large logical address spaces whose complete contents do not need to be resident simultaneously.
 
