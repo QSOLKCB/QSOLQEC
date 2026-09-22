@@ -24,6 +24,7 @@ Every new rung should preserve these rules:
 8. **A result that fails, scales badly, or loses to a baseline is still valid evidence.**
 9. **QSOLQEC does not promote directly into QEC.**
 10. **QSOL-QEC-BRIDGE remains the only intended promotion/conformance boundary.**
+11. **Every benchmark receipt must bind to the exact source revision used to build the executable, with a public locator that an independent reproducer can retrieve.**
 
 ## Experimental maturity
 
@@ -191,6 +192,8 @@ The initial runtime provides:
 - Linux current/peak RSS where available;
 - separate construction, execution, snapshot, and oracle-verification timing;
 - representation-independent workload identity;
+- explicit exact/approximate/unsupported operation-support class;
+- build-time source SHA binding plus public GitHub commit locator;
 - separate host identity;
 - optional NVIDIA inventory without implying GPU execution;
 - Dense self-reference and tractable Stabilizer-vs-Dense oracle agreement.
