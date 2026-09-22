@@ -90,10 +90,6 @@ fn reject_dirty_checkout(root: &Path) {
 
     let dirty: Vec<&str> = status
         .lines()
-        // Cargo currently generates an untracked workspace Cargo.lock in this
-        // repository. It is build metadata, not an input to the benchmark
-        // executable's source semantics, and is therefore ignored here.
-        .filter(|line| line.trim() != "?? Cargo.lock")
         .filter(|line| !line.trim().is_empty())
         .collect();
 
