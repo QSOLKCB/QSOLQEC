@@ -184,6 +184,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "qsolqec-qec"
+version = "0.1.0"
+dependencies = [
+ "qsolqec-core",
+ "qsolqec-glassbox",
+ "qsolqec-module-api",
+ "qsolqec-ops",
+]
+
+[[package]]
 name = "qsolqec-module-api"
 version = "0.0.1"
 

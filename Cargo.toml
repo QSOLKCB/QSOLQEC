@@ -11,6 +11,7 @@ members = [
     "crates/qsolqec-storage",
     "crates/qsolqec-fly-phi664",
     "crates/qsolqec-fly-qdn",
+    "crates/qsolqec-qec",
     "crates/qsolqec-cli",
 ]
 resolver = "2"

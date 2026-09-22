@@ -604,7 +604,7 @@ All OPT mechanisms are imported as **patterns and contracts**, not universal par
 
 ## R9 - Amplitude-memory-wall challenge
 
-**Implemented in PR #12 (pending merge).**
+**Complete: PR #12.**
 
 R9 turns the storage work into a bounded scientific experiment.
 
@@ -683,6 +683,8 @@ See `docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md`.
 
 ## R10 - Noise and decoder modules
 
+**Implemented in PR #13 (pending merge).**
+
 - Replayable error/noise specifications.
 - Syndrome data kind.
 - Decoder module contract.
@@ -690,6 +692,25 @@ See `docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md`.
 - Candidate decoder comparisons.
 - No oracle rescue unless explicitly part of the candidate algorithm.
 - Permit structured-memory representations as decoder inputs only under explicit contracts.
+
+The first R10 implementation adds `qsolqec-qec` with a deliberately narrow exact contract:
+
+- deterministic seeded generalized Weyl noise with integer PPM thresholds;
+- fixed four-word PRNG consumption per subsystem and canonical replay digests;
+- typed `ErrorPattern` data and frozen X-then-Z replay ordering;
+- prime-d odd-length repetition-code specification;
+- generalized X-shift syndrome convention `s_i = e_i - e_(i+1) mod d`;
+- explicit rejection of Z components by the initial repetition-X syndrome path;
+- a representation-independent `Decoder` trait consuming `Syndrome` and producing `Correction`;
+- `ExactRepetitionXDecoder`, selecting the unique minimum-weight syndrome representative inside the declared correctable radius;
+- `LookupRepetitionXDecoder`, built only from the complete correctable corpus under an explicit entry budget;
+- deterministic bounded candidate/reference comparison with a retained comparison digest;
+- exhaustive candidate agreement on the Q(3,5) correctable corpus (51 error patterns);
+- no dependencies on Dense, PrimeStabilizer, Fly-Phi664, or the R9 benchmark runtime, so decoder oracle rescue is structurally unavailable;
+- no structured-memory state input in this rung: future state-to-decoder integration requires an explicit syndrome/adapter contract;
+- no physical-noise, measurement-circuit, arbitrary stabilizer-code, Z-error-correction, composite-d, or large-scale decoder claim.
+
+See `docs/NOISE_DECODER_MODULES.md`.
 
 ---
 

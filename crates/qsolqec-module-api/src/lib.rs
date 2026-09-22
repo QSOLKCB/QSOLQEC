@@ -23,11 +23,13 @@ pub enum Capability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataKind {
     ExperimentSpec,
+    SystemSpec,
     QuditState,
     OperationStream,
     EncodedState,
     StateTransition,
     ProbabilityDistribution,
+    ErrorPattern,
     Syndrome,
     Correction,
     Observation,
