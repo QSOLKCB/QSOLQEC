@@ -15,7 +15,7 @@ use qsolqec_core::SystemSpec;
 use qsolqec_dense::{DenseState, DenseStateError};
 use qsolqec_fly_phi664::{MacroSourceSpec, Phi664Codec};
 use qsolqec_fly_qdn::virtualized::{
-    PageKindCounts, VirtualExecutor, VirtualFlyQdnState, VirtualizationConfig, VirtualizationError,
+    VirtualExecutor, VirtualFlyQdnState, VirtualizationConfig, VirtualizationError,
     VIRTUALIZED_REPRESENTATION_ID,
 };
 use qsolqec_fly_qdn::FlyQdnError;
