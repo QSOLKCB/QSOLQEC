@@ -8,6 +8,7 @@ members = [
     "crates/qsolqec-dense",
     "crates/qsolqec-stabilizer",
     "crates/qsolqec-memorywall",
+    "crates/qsolqec-storage",
     "crates/qsolqec-cli",
 ]
 resolver = "2"
