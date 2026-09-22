@@ -607,6 +607,10 @@ impl VirtualFlyQdnState {
         self.pages.values().map(|page| page.occupancy).sum()
     }
 
+    pub fn materialized_page_count(&self) -> usize {
+        self.pages.len()
+    }
+
     pub fn page_kind_counts(&self) -> PageKindCounts {
         let mut counts = PageKindCounts::default();
         for page in self.pages.values() {
@@ -960,6 +964,10 @@ impl VirtualExecutor {
 
     pub fn worker_scratch_capacity_bytes(&self) -> u128 {
         self.scratch.deterministic_capacity_bytes()
+    }
+
+    pub fn cached_state_count(&self) -> usize {
+        self.state_cache.len()
     }
 
     pub fn apply_operation(
