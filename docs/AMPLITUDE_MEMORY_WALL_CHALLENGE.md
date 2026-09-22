@@ -111,6 +111,13 @@ body-ID set through the R7 codec, and receipts bind:
 
 Duplicate body IDs still fail closed under the R7 contract.
 
+For a sweep, an external body-ID file is read exactly once by the parent
+process before any child point is launched. The parsed membership is
+canonicalized into a private frozen snapshot, and every Fly child receives that
+same snapshot. Mutating, replacing, or streaming different contents from the
+original pathname after the sweep starts cannot mix source memberships across
+points.
+
 ## Virtualization configuration
 
 R9 exposes the main Gate-B configuration knobs:
@@ -129,7 +136,13 @@ R9 exposes the main Gate-B configuration knobs:
 The defaults are only an initial benchmark configuration. They are not promoted
 as portable optima.
 
-Every value above is bound into the Fly experiment identity.
+Every value above is bound into the Fly experiment identity **and serialized
+explicitly in the successful Fly receipt** as `page_span`, `tile_span`,
+`sparse_max_occupancy`, `bitmap_max_occupancy`, `scratch_domains`,
+`owner_count`, `max_cached_states`, and
+`max_in_flight_generations`. The experiment hash is therefore independently
+recomputable from the retained artifact rather than relying on opaque identity
+alone.
 
 ## Logical scale versus resident scale
 
@@ -176,7 +189,10 @@ The Fly receipt records:
 - `tracked_state_resident_bytes`;
 - `worker_scratch_capacity_bytes`;
 - `peak_tracked_active_bytes`;
+- page span and tile span;
+- sparse and bitmap occupancy thresholds;
 - configured scratch and owner domains;
+- configured cache-state and in-flight-generation limits;
 - final cache-state count;
 - cache hits and misses;
 - invariant reuse count;
@@ -216,8 +232,14 @@ It includes the process-level consequences of indexes, caches, maps, allocator
 overhead, page tables visible through RSS accounting, temporary candidate
 states, and other resident structures.
 
-Candidate RSS is frozen before Dense oracle verification starts, so the oracle
-cannot contaminate the candidate peak measurement.
+For each `run` process, the RSS/VmHWM baseline is captured **before**
+Fly-specific external input loading or parsing. External body-ID file loading,
+canonical membership allocation, codec/state construction, executor scratch,
+caches, and execution therefore contribute to the point's measured growth
+rather than being hidden inside the subtracted baseline.
+
+Candidate RSS is then frozen before Dense oracle verification starts, so the
+oracle cannot contaminate the candidate peak measurement.
 
 ## Reuse and recomputation
 
@@ -263,6 +285,11 @@ Linux `VmHWM` is cumulative over process lifetime.
 
 A killed or crashed child becomes a `child_failures` record and does not
 erase earlier completed points.
+
+For Fly sweeps with `--fly-body-ids`, the parent freezes that membership once
+before the first point and children reopen only the frozen snapshot. Each child
+still captures its own RSS baseline before parsing that snapshot, preserving
+both sweep identity coherence and point-local memory accounting.
 
 ## Examples
 
