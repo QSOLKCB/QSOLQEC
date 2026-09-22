@@ -9,6 +9,7 @@ members = [
     "crates/qsolqec-stabilizer",
     "crates/qsolqec-memorywall",
     "crates/qsolqec-storage",
+    "crates/qsolqec-fly-phi664",
     "crates/qsolqec-cli",
 ]
 resolver = "2"
