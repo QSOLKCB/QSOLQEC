@@ -123,10 +123,8 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             command.args(&child_args);
             if *representation == RepresentationKind::FlyPhi664Virtualized {
                 command.args(&fly_args.args);
-                if let Some(path) = &fly_args.frozen_body_ids_path {
-                    command.env(FROZEN_FLY_BODY_IDS_ENV, path.as_os_str());
-                }
             }
+            configure_frozen_snapshot_environment(&mut command, *representation, &fly_args);
 
             let output = command.output()?;
             if !output.status.success() {
@@ -345,6 +343,19 @@ impl Drop for FrozenFlyChildArgs {
     fn drop(&mut self) {
         if let Some(path) = self.frozen_body_ids_path.take() {
             let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn configure_frozen_snapshot_environment(
+    command: &mut Command,
+    representation: RepresentationKind,
+    fly_args: &FrozenFlyChildArgs,
+) {
+    command.env_remove(FROZEN_FLY_BODY_IDS_ENV);
+    if representation == RepresentationKind::FlyPhi664Virtualized {
+        if let Some(path) = &fly_args.frozen_body_ids_path {
+            command.env(FROZEN_FLY_BODY_IDS_ENV, path.as_os_str());
         }
     }
 }
@@ -613,14 +624,44 @@ mod tests {
 
         let raw = b"/tmp/qsolqec-\xff-bodyids.txt".to_vec();
         let path = PathBuf::from(std::ffi::OsString::from_vec(raw.clone()));
+        let fly_args = FrozenFlyChildArgs {
+            args: Vec::new(),
+            frozen_body_ids_path: Some(path),
+        };
         let mut command = Command::new("true");
-        command.env(FROZEN_FLY_BODY_IDS_ENV, path.as_os_str());
+        configure_frozen_snapshot_environment(
+            &mut command,
+            RepresentationKind::FlyPhi664Virtualized,
+            &fly_args,
+        );
 
         let (_, value) = command
             .get_envs()
             .find(|(key, _)| *key == std::ffi::OsStr::new(FROZEN_FLY_BODY_IDS_ENV))
             .unwrap();
         assert_eq!(value.unwrap().as_bytes(), raw.as_slice());
+    }
+
+    #[test]
+    fn sweep_children_clear_inherited_frozen_snapshot_environment() {
+        let fly_args = FrozenFlyChildArgs {
+            args: Vec::new(),
+            frozen_body_ids_path: None,
+        };
+        let mut command = Command::new("true");
+        command.env(FROZEN_FLY_BODY_IDS_ENV, "/tmp/inherited-bodyids.txt");
+
+        configure_frozen_snapshot_environment(
+            &mut command,
+            RepresentationKind::Dense,
+            &fly_args,
+        );
+
+        let (_, value) = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(FROZEN_FLY_BODY_IDS_ENV))
+            .unwrap();
+        assert!(value.is_none());
     }
 
     #[test]
