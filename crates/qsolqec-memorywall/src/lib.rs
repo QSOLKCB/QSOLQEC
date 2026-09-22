@@ -425,7 +425,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             source_revision_url: revision_url,
             representation: spec.representation,
             representation_id: spec.representation.id().into(),
-            compute_backend: "scalar-cpu".into(),
+            compute_backend: compute_backend(spec.representation).into(),
             worker_count: 1,
             dimension: spec.dimension,
             subsystems: spec.subsystems,
@@ -452,6 +452,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             final_state_digest: None,
             norm_squared: None,
             oracle_agreement: OracleAgreement::NotApplicable,
+            structured_candidate: None,
             outcome: RunOutcome::Unsupported {
                 reason: format!(
                     "{} does not support the declared workload for Q({},{})",
@@ -471,7 +472,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
                 source_revision_url: revision_url,
                 representation: spec.representation,
                 representation_id: spec.representation.id().into(),
-                compute_backend: "scalar-cpu".into(),
+                compute_backend: compute_backend(spec.representation).into(),
                 worker_count: 1,
                 dimension: spec.dimension,
                 subsystems: spec.subsystems,
@@ -498,6 +499,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
                 final_state_digest: None,
                 norm_squared: None,
                 oracle_agreement: OracleAgreement::NotApplicable,
+                structured_candidate: None,
                 outcome: RunOutcome::LogicalBudgetExceeded {
                     required_bytes: required,
                     limit_bytes: limit,
@@ -662,7 +664,7 @@ fn run_dense(
         source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
-        compute_backend: "scalar-cpu".into(),
+        compute_backend: compute_backend(spec.representation).into(),
         worker_count: 1,
         dimension: spec.dimension,
         subsystems: spec.subsystems,
@@ -694,6 +696,7 @@ fn run_dense(
         final_state_digest: Some(snapshot.state_digest),
         norm_squared: Some(snapshot.norm_squared),
         oracle_agreement: OracleAgreement::SelfReference,
+        structured_candidate: None,
         outcome: RunOutcome::Success,
     })
 }
@@ -814,7 +817,7 @@ fn run_stabilizer(
         source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
-        compute_backend: "scalar-cpu".into(),
+        compute_backend: compute_backend(spec.representation).into(),
         worker_count: 1,
         dimension: spec.dimension,
         subsystems: spec.subsystems,
@@ -846,6 +849,7 @@ fn run_stabilizer(
         final_state_digest: Some(snapshot.state_digest),
         norm_squared: Some(snapshot.norm_squared),
         oracle_agreement,
+        structured_candidate: None,
         outcome: RunOutcome::Success,
     })
 }
@@ -907,7 +911,7 @@ fn failed_receipt(
         source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
-        compute_backend: "scalar-cpu".into(),
+        compute_backend: compute_backend(spec.representation).into(),
         worker_count: 1,
         dimension: spec.dimension,
         subsystems: spec.subsystems,
@@ -939,6 +943,7 @@ fn failed_receipt(
         final_state_digest: None,
         norm_squared: None,
         oracle_agreement: OracleAgreement::NotApplicable,
+        structured_candidate: None,
         outcome,
     })
 }
