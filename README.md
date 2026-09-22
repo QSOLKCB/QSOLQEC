@@ -124,12 +124,15 @@ crates/
 ├── qsolqec-stabilizer/   R4 exact prime-d stabilizer/tableau candidate
 ├── qsolqec-memorywall/   R5 benchmark + memory-wall experiment runtime
 ├── qsolqec-storage/      R6 neutral structured logical-storage contract
+├── qsolqec-fly-phi664/   R7 MaleCNS-bound Phi664 sparse storage prototype
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
 R5 adds a provider-neutral memory-wall runtime that executes deterministic workloads through Dense and PrimeStabilizer, records logical representation bytes separately from process RSS, and emits machine-readable receipts suitable for repeated local/cloud experiments. Every benchmark receipt is built only from a clean Git checkout with the committed `Cargo.lock`, and its build-time SHA must be retrievable from the canonical public QSOLQEC repository before the executable is accepted.
 
 R6 adds a representation-neutral `qsolqec-storage` contract for large logical address spaces with checked geometry-bound packed addresses, bounded materialization windows, sparse/dense backing declarations, deterministic tile ownership, explicit persistence versions, exact/approximate storage declarations, and a typed `ObservableStorage` snapshot that is deliberately separate from Glass Box quantum-state observation.
+
+R7 adds `qsolqec-fly-phi664`, a concrete sparse substrate that binds an exact MaleCNS v1.0 `bodyId` set into source identity and gives every macro node three disjoint finite fibres: F27, N125, and R512. It round-trips structured addresses through a stable packed namespace, enforces bounded materialization, and emits the R6 storage snapshot without implementing `SystemSpec` or Glass Box `ObservableState`.
 
 See:
 
@@ -139,6 +142,7 @@ See:
 - [docs/PRIME_STABILIZER.md](docs/PRIME_STABILIZER.md)
 - [docs/MEMORY_WALL_RUNTIME.md](docs/MEMORY_WALL_RUNTIME.md)
 - [docs/STRUCTURED_STORAGE_CONTRACT.md](docs/STRUCTURED_STORAGE_CONTRACT.md)
+- [docs/FLY_PHI664.md](docs/FLY_PHI664.md)
 
 ## Historical inspiration
 
@@ -173,7 +177,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 5. **R4 - First alternate representation** - complete in PR #5; exact prime-d stabilizer/tableau.
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
-8. **R7 - Fly-Phi664 structured memory prototype**.
+8. **R7 - Fly-Phi664 structured memory prototype** - implemented in the current R7 follow-on.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
 10. **R9 - Amplitude-memory-wall challenge**.
 11. **R10 - Noise and decoder modules**.
@@ -188,6 +192,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R6: structured logical-memory substrate contract (PR #8).**
+**R7: Fly-Phi664 structured memory prototype.**
 
-The project now has a deterministic, representation-neutral storage contract that keeps geometry/address identity, payload identity, materialized payload, resident working-set bytes, and process RSS conceptually separate. `ObservableStorage` does not carry `SystemSpec`, norm, fidelity, or other quantum-state semantics. R7 Fly-Phi664 is the next roadmap rung.
+The project now has a concrete R6 storage substrate with MaleCNS v1.0 source binding, exact `bodyId` macro-node identity, a 664-position disjoint fibre bundle per macro node, sparse payload backing, bounded materialization, and deterministic storage observations. The historical 166,691 planning count is not used as an allocation authority; the exact supplied and hashed node set defines each store. R8 Q(d,n) binding is the next roadmap rung.
