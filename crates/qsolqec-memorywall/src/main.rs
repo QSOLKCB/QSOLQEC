@@ -89,9 +89,7 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
     let fly_args = FrozenFlyChildArgs::from_sweep_args(args)?;
-    if fly_args.has_any()
-        && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
-    {
+    if fly_args.has_any() && !representations.contains(&RepresentationKind::FlyPhi664Virtualized) {
         return Err("Fly-specific options require fly-phi664 in --representations".into());
     }
 
@@ -316,7 +314,6 @@ impl FrozenFlyChildArgs {
     fn has_any(&self) -> bool {
         !self.args.is_empty() || self.frozen_body_ids_path.is_some()
     }
-
 
     fn from_sweep_args(args: &[String]) -> Result<Self, Box<dyn std::error::Error>> {
         let mut output = Vec::new();
