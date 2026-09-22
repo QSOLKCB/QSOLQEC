@@ -373,6 +373,8 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
                 dimension: spec.dimension,
                 subsystems: spec.subsystems,
                 rounds: spec.rounds,
+                max_logical_bytes: spec.max_logical_bytes,
+                oracle_logical_limit_bytes: spec.oracle_logical_limit_bytes,
                 workload,
                 operation_support,
                 host,
