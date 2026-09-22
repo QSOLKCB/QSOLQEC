@@ -1,0 +1,13 @@
+[package]
+name = "qsolqec-qec"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Replayable noise, syndrome, and decoder contracts for QSOLQEC"
+
+[dependencies]
+qsolqec-core = { path = "../qsolqec-core" }
+qsolqec-glassbox = { path = "../qsolqec-glassbox" }
+qsolqec-module-api = { path = "../qsolqec-module-api" }
+qsolqec-ops = { path = "../qsolqec-ops" }
