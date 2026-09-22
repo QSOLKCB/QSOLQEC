@@ -31,10 +31,141 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Check
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace --all-targets --locked
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
+
+      - name: Memory-wall provenance guards
+        run: |
+          set -euo pipefail
+
+          # Dirty tracked source must fail closed.
+          printf '\n// provenance-dirty-fixture\n' >> crates/qsolqec-memorywall/src/lib.rs
+          if cargo check --locked -q -p qsolqec-memorywall 2>/tmp/memorywall-dirty.err; then
+            echo "dirty memory-wall build unexpectedly succeeded"
+            exit 1
+          fi
+          grep -q "refusing memory-wall benchmark build from a dirty checkout" /tmp/memorywall-dirty.err
+          git checkout -- crates/qsolqec-memorywall/src/lib.rs
+
+          # An untracked Cargo.lock is a build input and must also fail closed.
+          rm -rf /tmp/qsolqec-untracked-lock
+          git clone -q --no-hardlinks . /tmp/qsolqec-untracked-lock
+          (
+            cd /tmp/qsolqec-untracked-lock
+            git config user.name "QSOLQEC CI"
+            git config user.email "qsolqec-ci@example.invalid"
+            git rm --cached -q Cargo.lock
+            git commit -q -m "untrack Cargo.lock fixture"
+            test -f Cargo.lock
+            if cargo check --locked -q -p qsolqec-memorywall 2>/tmp/memorywall-untracked-lock.err; then
+              echo "untracked Cargo.lock build unexpectedly succeeded"
+              exit 1
+            fi
+            grep -q "refusing memory-wall benchmark build from a dirty checkout" /tmp/memorywall-untracked-lock.err
+          )
+
+          # A clean local-only commit must not be advertised as retrievable from
+          # the canonical public QSOLQEC repository.
+          rm -rf /tmp/qsolqec-local-only
+          git clone -q https://github.com/QSOLKCB/QSOLQEC.git /tmp/qsolqec-local-only
+          (
+            cd /tmp/qsolqec-local-only
+            public_ref="${GITHUB_HEAD_REF:-main}"
+            git fetch -q origin "${public_ref}"
+            git checkout -q --detach FETCH_HEAD
+            git config user.name "QSOLQEC CI"
+            git config user.email "qsolqec-ci@example.invalid"
+            printf '\n<!-- local-only-provenance-fixture -->\n' >> README.md
+            git add README.md
+            git commit -q -m "local-only provenance fixture"
+            if cargo check --locked -q -p qsolqec-memorywall 2>/tmp/memorywall-local-only.err; then
+              echo "local-only memory-wall build unexpectedly succeeded"
+              exit 1
+            fi
+            grep -q "not retrievable from https://github.com/QSOLKCB/QSOLQEC.git" /tmp/memorywall-local-only.err
+          )
+
+          # On PRs, the current public head and its public parent both contain
+          # the same provenance build script. Reusing one target directory must
+          # update the embedded SHA after checkout moves A -> B.
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            rm -rf /tmp/qsolqec-public-transition
+            git clone -q https://github.com/QSOLKCB/QSOLQEC.git /tmp/qsolqec-public-transition
+            (
+              cd /tmp/qsolqec-public-transition
+              git fetch -q origin "${GITHUB_HEAD_REF}"
+              revision_b="$(git rev-parse FETCH_HEAD)"
+              revision_a="$(git rev-parse "${revision_b}^")"
+
+              git checkout -q --detach "${revision_a}"
+              cargo run --locked -q -p qsolqec-memorywall -- run \
+                --representation dense --dimension 2 --subsystems 2 --rounds 1 \
+                > /tmp/memorywall-provenance-a.json
+
+              git checkout -q --detach "${revision_b}"
+              cargo run --locked -q -p qsolqec-memorywall -- run \
+                --representation dense --dimension 2 --subsystems 2 --rounds 1 \
+                > /tmp/memorywall-provenance-b.json
+
+              EXPECTED_A="${revision_a}" EXPECTED_B="${revision_b}" python3 - <<'PY'
+          import json
+          import os
+
+          with open("/tmp/memorywall-provenance-a.json", encoding="utf-8") as handle:
+              a = json.load(handle)["body"]["source_revision"]
+          with open("/tmp/memorywall-provenance-b.json", encoding="utf-8") as handle:
+              b = json.load(handle)["body"]["source_revision"]
+
+          if a != os.environ["EXPECTED_A"]:
+              raise SystemExit(f"commit A provenance mismatch: receipt={a} expected={os.environ['EXPECTED_A']}")
+          if b != os.environ["EXPECTED_B"]:
+              raise SystemExit(f"commit B provenance mismatch: receipt={b} expected={os.environ['EXPECTED_B']}")
+          if a == b:
+              raise SystemExit(f"source revision stayed stale across public commits: {a}")
+          PY
+            )
+          fi
+
+      - name: Memory-wall CLI guards
+        run: |
+          set -euo pipefail
+          for flag in --max-logical-mib --oracle-limit-mib; do
+            if cargo run --locked -q -p qsolqec-memorywall -- run \
+              --representation dense --dimension 2 --subsystems 2 --rounds 1 \
+              "${flag}" >/tmp/memorywall-missing-value.out 2>/tmp/memorywall-missing-value.err; then
+              echo "${flag} without a value unexpectedly succeeded"
+              exit 1
+            fi
+            grep -q -- "${flag} requires an integer MiB value" /tmp/memorywall-missing-value.err
+          done
+
+      - name: Memory-wall smoke
+        run: |
+          cargo run --locked -q -p qsolqec-memorywall -- run \
+            --representation dense --dimension 2 --subsystems 3 --rounds 2 \
+            --max-logical-mib 64 --oracle-limit-mib 8 \
+            > /tmp/memorywall-dense.json
+          cargo run --locked -q -p qsolqec-memorywall -- run \
+            --representation stabilizer --dimension 3 --subsystems 2 --rounds 2 \
+            --max-logical-mib 64 --oracle-limit-mib 16 \
+            > /tmp/memorywall-stabilizer.json
+          cargo run --locked -q -p qsolqec-memorywall -- sweep \
+            --representations dense,stabilizer --dimension 2 \
+            --start-n 2 --end-n 4 --step 2 --rounds 1 \
+            --max-logical-mib 64 --oracle-limit-mib 16 \
+            > /tmp/memorywall-sweep.json
+
+          python3 - <<'PY'
+          import json
+
+          with open("/tmp/memorywall-dense.json", encoding="utf-8") as handle:
+              body = json.load(handle)["body"]
+
+          assert body["max_logical_bytes"] == 64 * 1024 * 1024
+          assert body["oracle_logical_limit_bytes"] == 8 * 1024 * 1024
+          PY

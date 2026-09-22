@@ -122,10 +122,11 @@ crates/
 ├── qsolqec-glassbox/     observation events and artifact identity
 ├── qsolqec-dense/        dense oracle + scalar operation execution
 ├── qsolqec-stabilizer/   R4 exact prime-d stabilizer/tableau candidate
+├── qsolqec-memorywall/   R5 benchmark + memory-wall experiment runtime
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
-R4 adds the first genuinely non-dense representation: an exact prime-dimensional stabilizer/tableau candidate for supported Clifford operations. Qubits and qutrits are supported; composite d=4 is deliberately unsupported in this first stabilizer formalism.
+R5 adds a provider-neutral memory-wall runtime that executes deterministic workloads through Dense and PrimeStabilizer, records logical representation bytes separately from process RSS, and emits machine-readable receipts suitable for repeated local/cloud experiments. Every benchmark receipt is built only from a clean Git checkout with the committed `Cargo.lock`, and its build-time SHA must be retrievable from the canonical public QSOLQEC repository before the executable is accepted.
 
 See:
 
@@ -133,6 +134,7 @@ See:
 - [docs/QUDIT_OPERATIONS.md](docs/QUDIT_OPERATIONS.md)
 - [docs/GLASS_BOX.md](docs/GLASS_BOX.md)
 - [docs/PRIME_STABILIZER.md](docs/PRIME_STABILIZER.md)
+- [docs/MEMORY_WALL_RUNTIME.md](docs/MEMORY_WALL_RUNTIME.md)
 
 ## Historical inspiration
 
@@ -165,7 +167,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 3. **R2 - Generalized qudit operations** - complete in PR #3.
 4. **R3 - Glass Box** - complete in PR #4.
 5. **R4 - First alternate representation** - complete in PR #5; exact prime-d stabilizer/tableau.
-6. **R5 - Representation benchmark and memory-accounting harness** - next.
+6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract**.
 8. **R7 - Fly-Phi664 structured memory prototype**.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
@@ -182,6 +184,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R4: first alternate representation.**
+**R5: memory-wall benchmark runtime (PR #7).**
 
-The project now has two genuinely different exact classical representations for supported workloads: the general dense oracle and a compact prime-dimensional stabilizer tableau. This is the first concrete representation-compression experiment, not a general quantum-advantage claim.
+The project now has a deterministic measurement harness for Dense and PrimeStabilizer that separates experiment identity from host identity and logical representation size from process RSS. R6 remains the next roadmap rung after R5 merges.

@@ -24,6 +24,7 @@ Every new rung should preserve these rules:
 8. **A result that fails, scales badly, or loses to a baseline is still valid evidence.**
 9. **QSOLQEC does not promote directly into QEC.**
 10. **QSOL-QEC-BRIDGE remains the only intended promotion/conformance boundary.**
+11. **Every benchmark receipt must bind to the exact source revision used to build the executable, with a public locator that an independent reproducer can retrieve.**
 
 ## Experimental maturity
 
@@ -138,7 +139,7 @@ R4 establishes the first concrete example of an exponentially large dense state 
 
 ## R5 - Representation benchmark and memory-accounting harness
 
-**Next**
+**Implemented in PR #7 (pending merge)**
 
 R5 creates the measuring instrument required before more exotic representations are introduced.
 
@@ -179,9 +180,29 @@ vs
 PrimeStabilizerState
 ```
 
-R5 should produce deterministic benchmark specifications and machine-readable receipts. Benchmark observations are not correctness proofs.
+R5 supplies deterministic benchmark specifications and machine-readable receipts through the `qsolqec-memorywall` runtime.
 
-No future representation should claim a memory or performance advantage until R5 supplies the measurement contract.
+The initial runtime provides:
+
+- `probe` host receipts;
+- `run` single-point execution;
+- `sweep` execution with one fresh child process per measured point;
+- deterministic `clifford-ring-v1` workloads;
+- logical-byte preflight limits before state construction;
+- Linux current/peak RSS where available;
+- separate construction, execution, snapshot, and oracle-verification timing;
+- representation-independent workload identity;
+- explicit exact/approximate/unsupported operation-support class;
+- build-time source SHA binding plus public GitHub commit locator;
+- separate host identity;
+- optional NVIDIA inventory without implying GPU execution;
+- Dense self-reference and tractable Stabilizer-vs-Dense oracle agreement.
+
+Allocation count and representation-specific resident tile bytes remain explicitly unavailable (`null`) until later observers/materialized representations provide those measurements. Missing measurements are not inferred.
+
+Benchmark observations are not correctness proofs.
+
+No future representation should claim a memory or performance advantage outside this measurement contract or a later explicitly versioned successor.
 
 ---
 

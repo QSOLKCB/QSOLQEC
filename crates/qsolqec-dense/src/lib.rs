@@ -14,7 +14,7 @@ use qsolqec_glassbox::{
     StateSnapshot,
 };
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
-use qsolqec_ops::{LocalUnitary, Operation, OperationValidationError};
+use qsolqec_ops::{LocalUnitary, Operation, OperationSupport, OperationValidationError};
 
 /// Dense reference state for Q(d,n).
 #[derive(Debug, Clone, PartialEq)]
@@ -112,11 +112,28 @@ impl DenseState {
         Ok(amplitude.norm_sqr())
     }
 
+    /// Report operation support for a declared system without constructing a state.
+    pub fn support_for_spec(
+        spec: SystemSpec,
+        operation: &Operation,
+    ) -> Result<OperationSupport, DenseOperationError> {
+        operation
+            .validate_for(spec)
+            .map_err(DenseOperationError::InvalidOperation)?;
+        Ok(OperationSupport::Exact)
+    }
+
+    /// Report support for this state's declared system.
+    pub fn support_for(
+        &self,
+        operation: &Operation,
+    ) -> Result<OperationSupport, DenseOperationError> {
+        Self::support_for_spec(self.spec, operation)
+    }
+
     /// Apply one validated generalized-qudit operation.
     pub fn apply_operation(&mut self, operation: &Operation) -> Result<(), DenseOperationError> {
-        operation
-            .validate_for(self.spec)
-            .map_err(DenseOperationError::InvalidOperation)?;
+        Self::support_for_spec(self.spec, operation)?;
         self.apply_validated(operation)
     }
 
@@ -130,9 +147,7 @@ impl DenseState {
         operations: &[Operation],
     ) -> Result<(), DenseOperationError> {
         for operation in operations {
-            operation
-                .validate_for(self.spec)
-                .map_err(DenseOperationError::InvalidOperation)?;
+            Self::support_for_spec(self.spec, operation)?;
         }
 
         for operation in operations {

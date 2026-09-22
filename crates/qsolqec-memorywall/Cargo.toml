@@ -1,0 +1,17 @@
+[package]
+name = "qsolqec-memorywall"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic representation benchmark and memory-wall runtime for QSOLQEC"
+
+[dependencies]
+num-complex = "0.4"
+qsolqec-core = { path = "../qsolqec-core" }
+qsolqec-dense = { path = "../qsolqec-dense" }
+qsolqec-glassbox = { path = "../qsolqec-glassbox" }
+qsolqec-ops = { path = "../qsolqec-ops" }
+qsolqec-stabilizer = { path = "../qsolqec-stabilizer" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
