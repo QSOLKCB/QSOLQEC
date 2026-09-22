@@ -144,6 +144,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "qsolqec-fly-qdn"
+version = "0.1.0"
+dependencies = [
+ "num-complex",
+ "qsolqec-core",
+ "qsolqec-dense",
+ "qsolqec-fly-phi664",
+ "qsolqec-glassbox",
+ "qsolqec-module-api",
+ "qsolqec-ops",
+ "qsolqec-storage",
+]
+
+[[package]]
 name = "qsolqec-glassbox"
 version = "0.1.0"
 dependencies = [
