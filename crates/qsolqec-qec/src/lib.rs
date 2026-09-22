@@ -691,12 +691,7 @@ impl Decoder for ExactRepetitionXDecoder {
             .into_iter()
             .map(|shift| neg_mod(shift, d))
             .collect::<Vec<_>>();
-        Correction::for_decoder(
-            self.code,
-            correction,
-            syndrome,
-            &self.descriptor(),
-        )
+        Correction::for_decoder(self.code, correction, syndrome, &self.descriptor())
     }
 }
 
@@ -897,7 +892,10 @@ fn validate_decoder_descriptor(descriptor: &ModuleDescriptor) -> Result<(), Deco
         })?;
     if !descriptor.capabilities.contains(&Capability::Decoder) {
         return Err(DecoderError::InvalidDecoderDescriptor {
-            reason: format!("module {} does not declare Decoder capability", descriptor.id),
+            reason: format!(
+                "module {} does not declare Decoder capability",
+                descriptor.id
+            ),
         });
     }
     if !descriptor.can_consume(DataKind::Syndrome) {
@@ -1694,8 +1692,7 @@ mod tests {
         let reference = ExactRepetitionXDecoder::new(code);
         let candidate = DelegatingCandidate { code };
 
-        let report =
-            compare_decoders_on_correctable_errors(&reference, &candidate, 51).unwrap();
+        let report = compare_decoders_on_correctable_errors(&reference, &candidate, 51).unwrap();
 
         assert_eq!(report.cases, 51);
         assert_eq!(report.matched, 0);
