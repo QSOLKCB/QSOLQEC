@@ -262,6 +262,7 @@ pub struct StructuredCandidateMeasurements {
     pub max_cached_states: usize,
     pub max_in_flight_generations: usize,
     pub cached_state_count: u64,
+    pub peak_retained_cache_states: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
     pub invariant_reuses: u64,
@@ -1099,6 +1100,7 @@ fn run_fly_virtualized(
         max_cached_states: spec.fly.max_cached_states,
         max_in_flight_generations: spec.fly.max_in_flight_generations,
         cached_state_count: u64::try_from(executor.cached_state_count()).unwrap_or(u64::MAX),
+        peak_retained_cache_states: metrics.peak_retained_cache_states,
         cache_hits: metrics.cache_hits,
         cache_misses: metrics.cache_misses,
         invariant_reuses: metrics.invariant_reuses,
@@ -1775,6 +1777,7 @@ mod tests {
         assert_eq!(candidate.scratch_domains, spec.fly.scratch_domains);
         assert_eq!(candidate.owner_count, spec.fly.owner_count);
         assert_eq!(candidate.max_cached_states, spec.fly.max_cached_states);
+        assert!(candidate.peak_retained_cache_states <= spec.fly.max_cached_states as u64);
         assert_eq!(
             candidate.max_in_flight_generations,
             spec.fly.max_in_flight_generations
@@ -1855,6 +1858,79 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .body_ids_digest
+        );
+    }
+
+    #[test]
+    fn fly_builtin_source_label_rejects_non_builtin_membership() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        spec.fly.body_ids = vec![10, 20];
+
+        let error = run_experiment(&spec).unwrap_err().to_string();
+        assert!(error.contains(
+            "body_id_source=builtin-r7-fixture requires exactly the built-in R7 body-ID membership"
+        ));
+    }
+
+    #[test]
+    fn fly_external_source_label_accepts_external_membership() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        spec.fly.body_ids = vec![10, 20];
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+
+        let receipt = run_experiment(&spec).unwrap();
+        assert!(receipt.body.outcome.is_success());
+        assert_eq!(
+            receipt
+                .body
+                .structured_candidate
+                .as_ref()
+                .unwrap()
+                .body_id_source,
+            FlyBodyIdSource::ExternalCanonicalList
+        );
+    }
+
+    #[test]
+    fn fly_experiment_identity_is_recomputable_from_retained_body_id_digest() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 2, 1);
+        spec.fly.body_ids = vec![10, 20];
+        spec.fly.body_id_source = FlyBodyIdSource::ExternalCanonicalList;
+
+        let system = spec.system().unwrap();
+        let operations = workload_operations(system, spec.rounds).unwrap();
+        let workload = workload_identity(system, spec.rounds, &operations);
+        let receipt = run_experiment(&spec).unwrap();
+        let candidate = receipt.body.structured_candidate.as_ref().unwrap();
+
+        let mut hasher = SemanticHasher::new();
+        hash_bytes(&mut hasher, b"qsolqec.memorywall.experiment.v1");
+        hash_bytes(&mut hasher, spec.representation.id().as_bytes());
+        hasher.update(&(spec.dimension as u128).to_be_bytes());
+        hasher.update(&(spec.subsystems as u128).to_be_bytes());
+        hasher.update(&(spec.rounds as u128).to_be_bytes());
+        hash_bytes(&mut hasher, workload.id.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(&spec.oracle_logical_limit_bytes.to_be_bytes());
+        hash_bytes(&mut hasher, compute_backend(spec.representation).as_bytes());
+        hash_bytes(&mut hasher, b"male-cns:v1.0");
+        hash_bytes(&mut hasher, candidate.body_ids_digest.as_bytes());
+        for value in [
+            candidate.page_span as u128,
+            candidate.tile_span as u128,
+            candidate.sparse_max_occupancy as u128,
+            candidate.bitmap_max_occupancy as u128,
+            candidate.scratch_domains as u128,
+            u128::from(candidate.owner_count),
+            candidate.max_cached_states as u128,
+            candidate.max_in_flight_generations as u128,
+        ] {
+            hasher.update(&value.to_be_bytes());
+        }
+
+        assert_eq!(
+            receipt.body.experiment_id,
+            format!("sha256:{}", hasher.finalize_hex())
         );
     }
 
