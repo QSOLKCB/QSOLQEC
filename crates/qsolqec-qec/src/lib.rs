@@ -251,6 +251,8 @@ impl ReplayableWeylNoise {
             })?;
 
         let nonzero = system.dimension() - 1;
+        let nonzero_u64 = u64::try_from(nonzero)
+            .expect("supported Rust targets represent usize within u64");
         for target in 0..system.subsystems() {
             // Consume a fixed four words per subsystem. Rate changes therefore
             // do not alter the later RNG position.
@@ -261,13 +263,15 @@ impl ReplayableWeylNoise {
 
             let x_shift = if (x_decision % u64::from(PPM_SCALE)) < u64::from(self.spec.x_error_ppm)
             {
-                1 + (x_magnitude as usize % nonzero)
+                1 + usize::try_from(x_magnitude % nonzero_u64)
+                    .expect("modulo result fits usize")
             } else {
                 0
             };
             let z_power = if (z_decision % u64::from(PPM_SCALE)) < u64::from(self.spec.z_error_ppm)
             {
-                1 + (z_magnitude as usize % nonzero)
+                1 + usize::try_from(z_magnitude % nonzero_u64)
+                    .expect("modulo result fits usize")
             } else {
                 0
             };
@@ -568,13 +572,22 @@ impl Correction {
                 actual: error_shifts.len(),
             });
         }
+        for (target, error) in error_shifts.iter().copied().enumerate() {
+            if error >= self.code.dimension {
+                return Err(QecError::ErrorExponentOutOfRange {
+                    target,
+                    field: "x_shift",
+                    value: error,
+                    dimension: self.code.dimension,
+                });
+            }
+        }
+
         Ok(error_shifts
             .iter()
             .copied()
             .zip(self.x_shifts.iter().copied())
-            .all(|(error, correction)| {
-                error < self.code.dimension && add_mod(error, correction, self.code.dimension) == 0
-            }))
+            .all(|(error, correction)| add_mod(error, correction, self.code.dimension) == 0))
     }
 }
 
@@ -1326,6 +1339,19 @@ mod tests {
             .events()
             .iter()
             .all(|event| event.x_shift() > 0 && event.z_power() > 0));
+    }
+
+    #[test]
+    fn noise_magnitude_selection_is_platform_width_independent() {
+        let system = SystemSpec::new(3, 2).unwrap();
+        let spec = WeylNoiseSpec::new(0xFFFF_FFFF_0000_0001, PPM_SCALE, PPM_SCALE).unwrap();
+        let pattern = ReplayableWeylNoise::new(spec).sample(system).unwrap();
+
+        assert_eq!(pattern.events().len(), 2);
+        assert!(pattern.events().iter().all(|event| {
+            (1..system.dimension()).contains(&event.x_shift())
+                && (1..system.dimension()).contains(&event.z_power())
+        }));
     }
 
     #[test]
