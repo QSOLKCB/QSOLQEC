@@ -1030,8 +1030,7 @@ impl VirtualExecutor {
             self.metrics.cache_misses = self.metrics.cache_misses.saturating_add(1);
             let next = self.apply_fresh(&candidate, operation)?;
 
-            if self.state_cache.len().saturating_add(pending.len())
-                < self.config.max_cached_states
+            if self.state_cache.len().saturating_add(pending.len()) < self.config.max_cached_states
             {
                 pending_order.push_back(signature.clone());
                 pending.insert(signature, Arc::new(next.clone()));
