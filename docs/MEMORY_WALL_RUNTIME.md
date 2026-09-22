@@ -74,6 +74,23 @@ The workload ID hashes the workload schema, Q(d,n), round count, and canonical R
 
 The workload ID does not include the representation. Dense and Stabilizer therefore receive the same declared operation stream.
 
+## Public source identity
+
+R5 enforces the invariant:
+
+> **Every benchmark receipt must bind to the exact source revision used to build the executable, with a public locator that an independent reproducer can retrieve.**
+
+The memory-wall crate's build script resolves the Git commit SHA while the binary is built and embeds that 40-hex revision into the executable. Runtime working-directory Git state is never used as benchmark provenance.
+
+Receipts expose both:
+
+- `source_revision`;
+- `source_revision_url`, pointing at the corresponding public QSOLQEC commit.
+
+When building from a source archive without `.git`, set `QSOLQEC_SOURCE_SHA` **at build time** to the exact public 40-hex commit SHA. The build fails closed if no valid source revision can be established.
+
+A runtime environment variable cannot relabel an already-built executable.
+
 ## Experiment identity
 
 The experiment identity binds:
@@ -158,7 +175,9 @@ Sweep both representations:
       --oracle-limit-mib 16 \
       --output memorywall-local.json
 
-A representation sweep stops after its first non-success outcome.
+A representation sweep stops after its first structured non-success outcome.
+
+If a child process is terminated before it can emit a receipt—for example by a cgroup or kernel OOM kill—the parent preserves every completed point, records the attempted terminal point in `child_failures` with exit-code/signal evidence, and continues with the next representation. It does not discard the completed sweep evidence.
 
 ## Cloud use
 
@@ -185,7 +204,7 @@ For a remote Linux host:
     cargo run --release -q -p qsolqec-memorywall -- probe
     cargo run --release -q -p qsolqec-memorywall -- sweep ...
 
-Set QSOLQEC_SOURCE_SHA when running from a packaged binary outside a Git checkout.
+For a source archive without Git metadata, set `QSOLQEC_SOURCE_SHA` while **building** the binary. Once built, provenance is immutable inside that executable.
 
 ## NVIDIA metadata
 
