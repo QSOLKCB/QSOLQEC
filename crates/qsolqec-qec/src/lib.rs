@@ -776,12 +776,7 @@ impl Decoder for LookupRepetitionXDecoder {
                 syndrome_digest: syndrome.digest.clone(),
             }
         })?;
-        Correction::for_decoder(
-            self.code,
-            correction,
-            syndrome,
-            &Decoder::descriptor(self),
-        )
+        Correction::for_decoder(self.code, correction, syndrome, &Decoder::descriptor(self))
     }
 }
 
