@@ -592,7 +592,10 @@ mod tests {
             parse_body_id_file(&frozen_path).unwrap(),
             vec![12781, 556329]
         );
-        assert!(!frozen.args.iter().any(|argument| argument == "--fly-body-ids"));
+        assert!(!frozen
+            .args
+            .iter()
+            .any(|argument| argument == "--fly-body-ids"));
         assert!(frozen
             .args
             .windows(2)
