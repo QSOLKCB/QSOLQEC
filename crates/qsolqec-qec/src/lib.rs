@@ -1661,6 +1661,51 @@ mod tests {
         assert_eq!(candidate.entry_count() as u128, report.cases);
     }
 
+    #[derive(Debug, Clone, Copy)]
+    struct DelegatingCandidate {
+        code: RepetitionCodeSpec,
+    }
+
+    impl Decoder for DelegatingCandidate {
+        fn descriptor(&self) -> ModuleDescriptor {
+            ModuleDescriptor {
+                id: "delegating-candidate".into(),
+                version: "test-v1".into(),
+                capabilities: vec![Capability::Decoder],
+                consumes: vec![DataKind::Syndrome],
+                produces: vec![DataKind::Correction],
+                experimental: true,
+                maturity: Maturity::E2DeterministicFixture,
+            }
+        }
+
+        fn code(&self) -> RepetitionCodeSpec {
+            self.code
+        }
+
+        fn decode(&self, syndrome: &Syndrome) -> Result<Correction, DecoderError> {
+            ExactRepetitionXDecoder::new(self.code).decode(syndrome)
+        }
+    }
+
+    #[test]
+    fn comparison_rejects_delegated_reference_correction_provenance() {
+        let code = RepetitionCodeSpec::new(3, 5).unwrap();
+        let reference = ExactRepetitionXDecoder::new(code);
+        let candidate = DelegatingCandidate { code };
+
+        let report =
+            compare_decoders_on_correctable_errors(&reference, &candidate, 51).unwrap();
+
+        assert_eq!(report.cases, 51);
+        assert_eq!(report.matched, 0);
+        assert_eq!(report.mismatched, 0);
+        assert_eq!(report.reference_failures, 0);
+        assert_eq!(report.candidate_failures, 51);
+        assert!(report.first_mismatch_syndrome_digest.is_some());
+        assert_eq!(report.candidate_decoder_id, "delegating-candidate");
+    }
+
     #[test]
     fn lookup_and_comparison_budgets_fail_before_enumeration() {
         let code = RepetitionCodeSpec::new(3, 5).unwrap();
