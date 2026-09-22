@@ -244,6 +244,19 @@ pub struct Phi664Codec {
     geometry: StorageGeometryIdentity,
 }
 
+pub fn canonical_body_ids_digest(mut body_ids: Vec<u64>) -> Result<String, Phi664Error> {
+    if body_ids.is_empty() {
+        return Err(Phi664Error::EmptyMacrograph);
+    }
+    body_ids.sort_unstable();
+    for pair in body_ids.windows(2) {
+        if pair[0] == pair[1] {
+            return Err(Phi664Error::DuplicateBodyId { body_id: pair[0] });
+        }
+    }
+    Ok(content_digest(&canonical_body_id_bytes(&body_ids)))
+}
+
 impl Phi664Codec {
     pub fn from_body_ids(
         source_spec: MacroSourceSpec,
