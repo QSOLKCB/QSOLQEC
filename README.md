@@ -172,7 +172,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 4. **R3 - Glass Box** - complete in PR #4.
 5. **R4 - First alternate representation** - complete in PR #5; exact prime-d stabilizer/tableau.
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
-7. **R6 - Structured logical-memory substrate contract** - implemented in the current R6 follow-on.
+7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
 8. **R7 - Fly-Phi664 structured memory prototype**.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
 10. **R9 - Amplitude-memory-wall challenge**.
@@ -188,6 +188,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R6: structured logical-memory substrate contract.**
+**R6: structured logical-memory substrate contract (PR #8).**
 
 The project now has a deterministic, representation-neutral storage contract that keeps geometry/address identity, payload identity, materialized payload, resident working-set bytes, and process RSS conceptually separate. `ObservableStorage` does not carry `SystemSpec`, norm, fidelity, or other quantum-state semantics. R7 Fly-Phi664 is the next roadmap rung.
