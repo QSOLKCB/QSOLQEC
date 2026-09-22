@@ -260,9 +260,9 @@ R6 is a storage contract. It is not yet a connectome-specific implementation.
 The R6 implementation supplies:
 
 - the `qsolqec-storage` contract crate;
-- stable geometry and source identities derived from canonical bytes;
+- stable geometry and source identities derived from canonical bytes, with logical namespace size bound into geometry identity;
 - geometry-bound packed logical addresses with fail-closed exhaustion checks;
-- checked mixed-radix helpers for deterministic address codecs;
+- checked mixed-radix helpers that reject an unrepresentable full radix namespace before packing any coordinate;
 - bounded materialization windows that reject arithmetic wrap and range overflow;
 - explicit sparse/dense physical backing declarations;
 - deterministic tile ownership from tile span and owner count;
@@ -270,7 +270,7 @@ The R6 implementation supplies:
 - exact versus named/contract-bounded approximate storage declarations;
 - payload identities independent of logical address identity;
 - a typed `ObservableStorage` / `StorageSnapshot` contract;
-- deterministic storage-observation artifact identity under schema `qsolqec.storage.observation.v1`;
+- deterministic storage-observation artifact identity under schema `qsolqec.storage.observation.v1`, with canonical lowercase SHA-256 digest input;
 - deterministic fixtures for round-tripping, exhaustion, materialization bounds, ownership, payload/address separation, and observation identity.
 
 The contract deliberately contains no `SystemSpec`, norm, fidelity, or Glass Box `ObservableState` requirement. Those remain reserved for a later Q(d,n)-bound adapter.
