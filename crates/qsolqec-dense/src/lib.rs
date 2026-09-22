@@ -124,7 +124,10 @@ impl DenseState {
     }
 
     /// Report support for this state's declared system.
-    pub fn support_for(&self, operation: &Operation) -> Result<OperationSupport, DenseOperationError> {
+    pub fn support_for(
+        &self,
+        operation: &Operation,
+    ) -> Result<OperationSupport, DenseOperationError> {
         Self::support_for_spec(self.spec, operation)
     }
 
