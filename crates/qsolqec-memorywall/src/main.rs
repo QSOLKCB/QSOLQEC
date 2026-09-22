@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 use qsolqec_memorywall::{
-    probe_host, run_experiment, source_revision, source_revision_url, ExperimentSpec, HarnessError,
-    FlyBodyIdSource, MemoryWallReceipt, RepresentationKind, SweepChildFailure, SweepReceipt,
-    SWEEP_SCHEMA,
+    probe_host, run_experiment, source_revision, source_revision_url, ExperimentSpec,
+    FlyBodyIdSource, HarnessError, MemoryWallReceipt, RepresentationKind, SweepChildFailure,
+    SweepReceipt, SWEEP_SCHEMA,
 };
 
 fn main() -> ExitCode {
@@ -217,10 +217,8 @@ fn parse_representation(value: &str) -> Result<RepresentationKind, Box<dyn std::
         "stabilizer" | "prime-stabilizer" => Ok(RepresentationKind::PrimeStabilizer),
         "fly-phi664" | "fly" | "virtualized" => Ok(RepresentationKind::FlyPhi664Virtualized),
         _ => Err(
-            format!(
-                "unknown representation {value:?}; use dense, stabilizer, or fly-phi664"
-            )
-            .into(),
+            format!("unknown representation {value:?}; use dense, stabilizer, or fly-phi664")
+                .into(),
         ),
     }
 }
@@ -283,9 +281,7 @@ fn configure_fly_spec(
     Ok(())
 }
 
-fn normalized_fly_child_args(
-    args: &[String],
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn normalized_fly_child_args(args: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut output = Vec::new();
     for flag in FLY_VALUE_FLAGS {
         if let Some(value) = optional_value_once(args, flag)? {
@@ -327,10 +323,7 @@ fn optional_usize(
         .transpose()
 }
 
-fn optional_u32(
-    args: &[String],
-    flag: &str,
-) -> Result<Option<u32>, Box<dyn std::error::Error>> {
+fn optional_u32(args: &[String], flag: &str) -> Result<Option<u32>, Box<dyn std::error::Error>> {
     optional_value_once(args, flag)?
         .map(|value| {
             value
