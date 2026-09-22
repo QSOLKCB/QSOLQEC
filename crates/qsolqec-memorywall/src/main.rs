@@ -74,8 +74,10 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         return Err("--start-n must not exceed --end-n".into());
     }
 
-    let max_logical_mib = option_value(args, "--max-logical-mib").map(str::to_owned);
-    let oracle_limit_mib = option_value(args, "--oracle-limit-mib").map(str::to_owned);
+    let max_logical_mib = optional_mib(args, "--max-logical-mib")?
+        .map(|bytes| (bytes / (1024 * 1024)).to_string());
+    let oracle_limit_mib = optional_mib(args, "--oracle-limit-mib")?
+        .map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
 
     let mut points = Vec::new();
@@ -212,15 +214,32 @@ fn parse_representation(value: &str) -> Result<RepresentationKind, Box<dyn std::
 }
 
 fn optional_mib(args: &[String], flag: &str) -> Result<Option<u64>, Box<dyn std::error::Error>> {
-    option_value(args, flag)
-        .map(|value| {
-            let mib: u64 = value
-                .parse()
-                .map_err(|_| format!("{flag} expects an integer MiB value, got {value:?}"))?;
-            mib.checked_mul(1024 * 1024)
-                .ok_or_else(|| format!("{flag} byte conversion overflow").into())
-        })
-        .transpose()
+    let positions: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, argument)| (argument == flag).then_some(index))
+        .collect();
+
+    if positions.len() > 1 {
+        return Err(format!("{flag} may be supplied at most once").into());
+    }
+
+    let Some(index) = positions.first().copied() else {
+        return Ok(None);
+    };
+
+    let value = args
+        .get(index + 1)
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| format!("{flag} requires an integer MiB value"))?;
+
+    let mib: u64 = value
+        .parse()
+        .map_err(|_| format!("{flag} expects an integer MiB value, got {value:?}"))?;
+
+    mib.checked_mul(1024 * 1024)
+        .map(Some)
+        .ok_or_else(|| format!("{flag} byte conversion overflow").into())
 }
 
 fn emit_json<T: serde::Serialize>(
