@@ -1,5 +1,7 @@
+use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{self, Command};
 
 fn main() {
     let root = git_output(None, &["rev-parse", "--show-toplevel"])
@@ -59,11 +61,37 @@ fn emit_git_rerun_guards(root: &Path) {
 fn verify_public_revision(revision: &str) {
     const PUBLIC_REPOSITORY: &str = "https://github.com/QSOLKCB/QSOLQEC.git";
 
+    // Verify against an empty object database. Fetching from the source
+    // checkout itself is insufficient because Git may already have a local-only
+    // object and therefore would not prove the public server can supply it.
+    let probe = env::temp_dir().join(format!(
+        "qsolqec-public-revision-{}-{revision}",
+        process::id()
+    ));
+    let _ = fs::remove_dir_all(&probe);
+
+    let initialized = Command::new("git")
+        .args(["init", "--bare", "--quiet"])
+        .arg(&probe)
+        .status()
+        .unwrap_or_else(|error| {
+            panic!(
+                "cannot initialize temporary Git repository for public revision verification: {error}"
+            )
+        });
+
+    if !initialized.success() {
+        panic!("cannot initialize temporary Git repository for public revision verification");
+    }
+
     let status = Command::new("git")
+        .arg("-C")
+        .arg(&probe)
         .args([
             "fetch",
             "--quiet",
             "--no-tags",
+            "--depth=1",
             "--no-write-fetch-head",
             PUBLIC_REPOSITORY,
             revision,
@@ -73,6 +101,8 @@ fn verify_public_revision(revision: &str) {
         .unwrap_or_else(|error| {
             panic!("cannot invoke Git to verify public QSOLQEC revision {revision}: {error}")
         });
+
+    let _ = fs::remove_dir_all(&probe);
 
     if !status.success() {
         panic!(
