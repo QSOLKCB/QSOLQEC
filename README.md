@@ -125,6 +125,7 @@ crates/
 ├── qsolqec-memorywall/   R5 benchmark + memory-wall experiment runtime
 ├── qsolqec-storage/      R6 neutral structured logical-storage contract
 ├── qsolqec-fly-phi664/   R7 MaleCNS-bound Phi664 sparse storage prototype
+├── qsolqec-fly-qdn/      R8A exact Q(d,n)-bound Fly-Phi664 baseline
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
@@ -133,6 +134,8 @@ R5 adds a provider-neutral memory-wall runtime that executes deterministic workl
 R6 adds a representation-neutral `qsolqec-storage` contract for large logical address spaces with checked geometry-bound packed addresses, bounded materialization windows, sparse/dense backing declarations, deterministic tile ownership, explicit persistence versions, exact/approximate storage declarations, and a typed `ObservableStorage` snapshot that is deliberately separate from Glass Box quantum-state observation.
 
 R7 adds `qsolqec-fly-phi664`, a concrete sparse substrate that binds an exact MaleCNS v1.0 `bodyId` set into source identity and gives every macro node three disjoint finite fibres: F27, N125, and R512. It round-trips structured addresses through a stable packed namespace, enforces bounded materialization, and emits the R6 storage snapshot without implementing `SystemSpec` or Glass Box `ObservableState`.
+
+R8A adds `qsolqec-fly-qdn`, the first explicit Q(d,n)-bound adapter over Fly-Phi664. It maps basis index directly onto canonical packed Phi664 addresses, stores exact Complex64 payload bits sparsely, reconstructs the complete amplitude vector for the Gate-A baseline, implements Glass Box `ObservableState`, and executes the exact Clifford-style operation subset without a Dense runtime fallback. Gate B remains the optimization phase.
 
 See:
 
@@ -143,6 +146,7 @@ See:
 - [docs/MEMORY_WALL_RUNTIME.md](docs/MEMORY_WALL_RUNTIME.md)
 - [docs/STRUCTURED_STORAGE_CONTRACT.md](docs/STRUCTURED_STORAGE_CONTRACT.md)
 - [docs/FLY_PHI664.md](docs/FLY_PHI664.md)
+- [docs/FLY_PHI664_QDN.md](docs/FLY_PHI664_QDN.md)
 
 ## Historical inspiration
 
@@ -178,7 +182,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
 8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
-9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization**.
+9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - Gate A implemented in the current follow-on PR; Gate B next.
 10. **R9 - Amplitude-memory-wall challenge**.
 11. **R10 - Noise and decoder modules**.
 12. **R11 - Flagship native-ququart experiment**.
@@ -192,6 +196,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R7: Fly-Phi664 structured memory prototype (PR #9).**
+**R8 Gate A: explicit Q(d,n) binding baseline (current follow-on PR).**
 
-The project now has a concrete R6 storage substrate with MaleCNS v1.0 source binding, exact `bodyId` macro-node identity, a 664-position disjoint fibre bundle per macro node, sparse payload backing, bounded materialization, and deterministic storage observations. The historical 166,691 planning count is not used as an allocation authority; the exact supplied and hashed node set defines each store. R8 Q(d,n) binding is the next roadmap rung.
+The project now has a Q(d,n)-bound Fly-Phi664 adapter with exact amplitude encoding, deterministic basis-index mapping, explicit reconstruction, Glass Box state observation, exact/unsupported operation classification, and Dense oracle comparison on tractable fixtures. The neutral R7 store remains separate. R8 Gate B - GALAXY/OPT virtualized materialization - is the next roadmap phase.
