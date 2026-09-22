@@ -155,7 +155,7 @@ impl VirtualizationConfig {
         hasher.finalize_hex()
     }
 
-    fn validate_for(self, spec: SystemSpec) -> Result<(), VirtualizationError> {
+    pub fn validate_for_spec(self, spec: SystemSpec) -> Result<(), VirtualizationError> {
         if self.tile_span < spec.dimension() {
             return Err(VirtualizationError::TileTooSmallForDimension {
                 tile_span: self.tile_span,
@@ -484,7 +484,7 @@ impl VirtualFlyQdnState {
         amplitudes: Vec<Complex64>,
         config: VirtualizationConfig,
     ) -> Result<Self, VirtualizationError> {
-        config.validate_for(spec)?;
+        config.validate_for_spec(spec)?;
         let expected = expected_state_len(spec)?;
         if amplitudes.len() != expected {
             return Err(FlyQdnError::AmplitudeCountMismatch {
@@ -530,7 +530,7 @@ impl VirtualFlyQdnState {
         basis_index: usize,
         config: VirtualizationConfig,
     ) -> Result<Self, VirtualizationError> {
-        config.validate_for(spec)?;
+        config.validate_for_spec(spec)?;
         let state_len = expected_state_len(spec)?;
         validate_capacity(&codec, state_len)?;
         if basis_index >= state_len {
