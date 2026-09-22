@@ -133,6 +133,12 @@ impl FlyExperimentConfig {
         )
         .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
     }
+
+    fn validate_for_system(&self, system: SystemSpec) -> Result<(), HarnessError> {
+        self.virtualization_config()?
+            .validate_for_spec(system)
+            .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -455,6 +461,9 @@ pub fn run_experiment_with_context(
     baseline: ProcessMemoryBaseline,
 ) -> Result<MemoryWallReceipt, HarnessError> {
     let system = spec.system()?;
+    if spec.representation == RepresentationKind::FlyPhi664Virtualized {
+        spec.fly.validate_for_system(system)?;
+    }
     let operations = workload_operations(system, spec.rounds)?;
     let workload = workload_identity(system, spec.rounds, &operations);
     let operation_support = workload_support_class(spec.representation, system, &operations)?;
@@ -1693,6 +1702,23 @@ mod tests {
             estimate_logical_bytes(RepresentationKind::FlyPhi664Virtualized, system),
             Some(4096 * 16)
         );
+    }
+
+    #[test]
+    fn invalid_fly_settings_reject_before_logical_budget_short_circuit() {
+        let mut zero_page =
+            ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 1, 1);
+        zero_page.max_logical_bytes = Some(0);
+        zero_page.fly.page_span = 0;
+        let error = run_experiment(&zero_page).unwrap_err().to_string();
+        assert!(error.contains("virtual page span must be nonzero"));
+
+        let mut undersized_tile =
+            ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 3, 1, 1);
+        undersized_tile.max_logical_bytes = Some(0);
+        undersized_tile.fly.tile_span = 2;
+        let error = run_experiment(&undersized_tile).unwrap_err().to_string();
+        assert!(error.contains("worker tile span 2 is smaller than local dimension 3"));
     }
 
     #[test]
