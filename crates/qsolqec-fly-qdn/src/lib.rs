@@ -14,6 +14,8 @@
 use core::fmt;
 use std::f64::consts::TAU;
 
+pub mod virtualized;
+
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
 use qsolqec_fly_phi664::{Phi664Address, Phi664Codec, Phi664Error, Phi664Store};

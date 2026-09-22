@@ -405,7 +405,7 @@ R8 has two ordered gates. The storage substrate must pass the state-binding gate
 
 ### Gate A - explicit Q(d,n) encoding and operation contract
 
-**Implemented in the PR #10 (pending merge).**
+**Complete: PR #10.**
 
 Define a representation adapter that binds neutral Fly-Phi664 storage to a declared quantum/qudit model.
 
@@ -459,6 +459,33 @@ The R8A implementation supplies:
 This is deliberately a full-reconstruction baseline. It does not claim a memory-wall advantage. Gate B must preserve the Gate-A semantics while reducing materialization.
 
 ### Gate B - GALAXY/OPT virtualized materialization
+
+**Implemented in PR #11 (pending merge).**
+
+The R8B implementation is an exact optimization layer over Gate A. It does not change the Q(d,n) model, basis ordering, amplitude codec, semantic digest domain, or supported-operation semantics.
+
+Implemented target adaptations:
+
+- density-adaptive exact pages with Empty, Sparse, Bitmap, and Dense local forms;
+- configurable page and tile spans with no claim that defaults are portable optima;
+- sound materialized-only execution for pure permutation operations;
+- bounded full logical scanning for Weyl Z because Gate-A signed-zero bits make broader sparse skipping unsound;
+- sound pruning of Fourier lanes proven to be entirely implicit positive zero;
+- reusable first-touched worker-local SoA scratch whose deterministic capacity scales with workers x tile span;
+- named bitwise identity reuse only for proven no-op Weyl X and controlled-shift cases;
+- signature-bound operation generations covering semantic state, source identity, geometry identity, encoder identity, operation bytes, and virtualization configuration;
+- transactional cache publication: newly computed generations become reusable only after the complete requested operation sequence succeeds;
+- immutable shared materialized tiles for multi-consumer fan-out;
+- one OnceLock-backed in-flight generation per tile, with explicit admission, cancellation, deadline, owner, and error behavior;
+- deterministic static tile ownership domains;
+- an exact R6 storage snapshot for the virtualized representation;
+- Gate-A and Dense parity fixtures at E3 oracle-compared maturity.
+
+R8B intentionally does **not** claim dynamic owner reassignment/fencing, parallel speedup, process-RSS improvement, or universal memory/runtime gains. The current worker pool is persistent reusable SoA scratch under a serial dispatcher; topology-aware parallel promotion requires separate evidence.
+
+OPT-APPROX-001 remains disabled. Any later approximation requires its own explicit error/degradation contract and must not weaken exact callers silently.
+
+See `docs/FLY_PHI664_VIRTUALIZED.md`.
 
 After a baseline bound adapter exists, apply previously extracted optimization contracts to make Fly-Phi664 sparse, hierarchical, and incrementally materialized rather than a giant flat allocation.
 
