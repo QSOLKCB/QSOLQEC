@@ -13,12 +13,18 @@ use std::time::Instant;
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
 use qsolqec_dense::{DenseState, DenseStateError};
+use qsolqec_fly_phi664::{MacroSourceSpec, Phi664Codec};
+use qsolqec_fly_qdn::virtualized::{
+    PageKindCounts, VirtualExecutor, VirtualFlyQdnState, VirtualizationConfig, VirtualizationError,
+    VIRTUALIZED_REPRESENTATION_ID,
+};
+use qsolqec_fly_qdn::FlyQdnError;
 use qsolqec_glassbox::{sha256_hex, ObservableState, SemanticHasher};
 use qsolqec_ops::{Operation, OperationSupport};
 use qsolqec_stabilizer::{PrimeStabilizerState, StabilizerError};
 use serde::{Deserialize, Serialize};
 
-pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v1";
+pub const RECEIPT_SCHEMA: &str = "qsolqec.memorywall.receipt.v2";
 pub const SWEEP_SCHEMA: &str = "qsolqec.memorywall.sweep.v1";
 pub const HOST_SCHEMA: &str = "qsolqec.memorywall.host.v1";
 pub const WORKLOAD_SCHEMA: &str = "qsolqec.memorywall.clifford-ring.v1";
@@ -31,6 +37,7 @@ const BUILD_SOURCE_SHA: &str = env!("QSOLQEC_BUILD_SOURCE_SHA");
 pub enum RepresentationKind {
     Dense,
     PrimeStabilizer,
+    FlyPhi664Virtualized,
 }
 
 impl RepresentationKind {
@@ -38,6 +45,7 @@ impl RepresentationKind {
         match self {
             Self::Dense => "dense-reference",
             Self::PrimeStabilizer => "prime-stabilizer",
+            Self::FlyPhi664Virtualized => VIRTUALIZED_REPRESENTATION_ID,
         }
     }
 }
@@ -47,7 +55,64 @@ impl fmt::Display for RepresentationKind {
         f.write_str(match self {
             Self::Dense => "dense",
             Self::PrimeStabilizer => "stabilizer",
+            Self::FlyPhi664Virtualized => "fly-phi664",
         })
+    }
+}
+
+pub const BUILTIN_FLY_BODY_IDS: [u64; 2] = [12781, 556329];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FlyBodyIdSource {
+    BuiltinR7Fixture,
+    ExternalCanonicalList,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlyExperimentConfig {
+    pub body_ids: Vec<u64>,
+    pub body_id_source: FlyBodyIdSource,
+    pub page_span: usize,
+    pub tile_span: usize,
+    pub sparse_max_occupancy: usize,
+    pub bitmap_max_occupancy: usize,
+    pub scratch_domains: usize,
+    pub owner_count: u32,
+    pub max_cached_states: usize,
+    pub max_in_flight_generations: usize,
+}
+
+impl Default for FlyExperimentConfig {
+    fn default() -> Self {
+        Self {
+            body_ids: BUILTIN_FLY_BODY_IDS.to_vec(),
+            body_id_source: FlyBodyIdSource::BuiltinR7Fixture,
+            page_span: 256,
+            tile_span: 256,
+            sparse_max_occupancy: 16,
+            bitmap_max_occupancy: 128,
+            scratch_domains: 4,
+            owner_count: 4,
+            max_cached_states: 32,
+            max_in_flight_generations: 4,
+        }
+    }
+}
+
+impl FlyExperimentConfig {
+    fn virtualization_config(&self) -> Result<VirtualizationConfig, HarnessError> {
+        VirtualizationConfig::new(
+            self.page_span,
+            self.tile_span,
+            self.sparse_max_occupancy,
+            self.bitmap_max_occupancy,
+            self.scratch_domains,
+            self.owner_count,
+            self.max_cached_states,
+            self.max_in_flight_generations,
+        )
+        .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
     }
 }
 
@@ -59,6 +124,7 @@ pub struct ExperimentSpec {
     pub rounds: usize,
     pub max_logical_bytes: Option<u64>,
     pub oracle_logical_limit_bytes: u64,
+    pub fly: FlyExperimentConfig,
 }
 
 impl ExperimentSpec {
@@ -75,6 +141,7 @@ impl ExperimentSpec {
             rounds,
             max_logical_bytes: None,
             oracle_logical_limit_bytes: DEFAULT_ORACLE_LOGICAL_LIMIT_BYTES,
+            fly: FlyExperimentConfig::default(),
         }
     }
 
