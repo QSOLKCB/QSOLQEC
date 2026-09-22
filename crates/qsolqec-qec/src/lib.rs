@@ -484,7 +484,30 @@ pub struct Correction {
 }
 
 impl Correction {
-    fn new(
+    pub fn for_decoder(
+        code: RepetitionCodeSpec,
+        x_shifts: Vec<usize>,
+        syndrome: &Syndrome,
+        decoder: &ModuleDescriptor,
+    ) -> Result<Self, DecoderError> {
+        validate_decoder_descriptor(decoder)?;
+        if syndrome.code != code {
+            return Err(DecoderError::CodeMismatch {
+                expected: code,
+                actual: syndrome.code,
+            });
+        }
+
+        Self::new_bound(
+            code,
+            x_shifts,
+            syndrome,
+            decoder.id.as_str(),
+            decoder.version.as_str(),
+        )
+    }
+
+    fn new_bound(
         code: RepetitionCodeSpec,
         x_shifts: Vec<usize>,
         syndrome: &Syndrome,
@@ -668,12 +691,11 @@ impl Decoder for ExactRepetitionXDecoder {
             .into_iter()
             .map(|shift| neg_mod(shift, d))
             .collect::<Vec<_>>();
-        Correction::new(
+        Correction::for_decoder(
             self.code,
             correction,
             syndrome,
-            "repetition-x-exact",
-            env!("CARGO_PKG_VERSION"),
+            &self.descriptor(),
         )
     }
 }
@@ -759,12 +781,11 @@ impl Decoder for LookupRepetitionXDecoder {
                 syndrome_digest: syndrome.digest.clone(),
             }
         })?;
-        Correction::new(
+        Correction::for_decoder(
             self.code,
             correction,
             syndrome,
-            "repetition-x-lookup",
-            env!("CARGO_PKG_VERSION"),
+            &self.descriptor(),
         )
     }
 }
@@ -868,6 +889,59 @@ pub struct DecoderComparison {
     pub digest: String,
 }
 
+fn validate_decoder_descriptor(descriptor: &ModuleDescriptor) -> Result<(), DecoderError> {
+    descriptor
+        .validate()
+        .map_err(|error| DecoderError::InvalidDecoderDescriptor {
+            reason: error.to_string(),
+        })?;
+    if !descriptor.capabilities.contains(&Capability::Decoder) {
+        return Err(DecoderError::InvalidDecoderDescriptor {
+            reason: format!("module {} does not declare Decoder capability", descriptor.id),
+        });
+    }
+    if !descriptor.can_consume(DataKind::Syndrome) {
+        return Err(DecoderError::InvalidDecoderDescriptor {
+            reason: format!("decoder {} does not consume Syndrome", descriptor.id),
+        });
+    }
+    if !descriptor.can_produce(DataKind::Correction) {
+        return Err(DecoderError::InvalidDecoderDescriptor {
+            reason: format!("decoder {} does not produce Correction", descriptor.id),
+        });
+    }
+    Ok(())
+}
+
+fn validate_correction_binding(
+    correction: &Correction,
+    syndrome: &Syndrome,
+    descriptor: &ModuleDescriptor,
+    code: RepetitionCodeSpec,
+) -> Result<(), DecoderError> {
+    if correction.code != code {
+        return Err(DecoderError::CorrectionCodeMismatch {
+            expected: code,
+            actual: correction.code,
+        });
+    }
+    if correction.source_syndrome_digest != syndrome.digest {
+        return Err(DecoderError::CorrectionSyndromeMismatch {
+            expected: syndrome.digest.clone(),
+            actual: correction.source_syndrome_digest.clone(),
+        });
+    }
+    if correction.decoder_id != descriptor.id || correction.decoder_version != descriptor.version {
+        return Err(DecoderError::CorrectionDecoderMismatch {
+            expected_id: descriptor.id.clone(),
+            expected_version: descriptor.version.clone(),
+            actual_id: correction.decoder_id.clone(),
+            actual_version: correction.decoder_version.clone(),
+        });
+    }
+    Ok(())
+}
+
 pub fn compare_decoders_on_correctable_errors(
     reference: &dyn Decoder,
     candidate: &dyn Decoder,
@@ -891,6 +965,9 @@ pub fn compare_decoders_on_correctable_errors(
 
     let reference_descriptor = reference.descriptor();
     let candidate_descriptor = candidate.descriptor();
+    validate_decoder_descriptor(&reference_descriptor)?;
+    validate_decoder_descriptor(&candidate_descriptor)?;
+
     let mut cases = 0u128;
     let mut matched = 0u128;
     let mut mismatched = 0u128;
@@ -913,23 +990,79 @@ pub fn compare_decoders_on_correctable_errors(
 
             match (reference_result, candidate_result) {
                 (Ok(reference_correction), Ok(candidate_correction)) => {
-                    if reference_correction.x_shifts == candidate_correction.x_shifts {
-                        matched = matched.saturating_add(1);
-                    } else {
-                        mismatched = mismatched.saturating_add(1);
-                        if first_mismatch_syndrome_digest.is_none() {
-                            first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                    let reference_binding = validate_correction_binding(
+                        &reference_correction,
+                        &syndrome,
+                        &reference_descriptor,
+                        code,
+                    );
+                    let candidate_binding = validate_correction_binding(
+                        &candidate_correction,
+                        &syndrome,
+                        &candidate_descriptor,
+                        code,
+                    );
+
+                    match (reference_binding, candidate_binding) {
+                        (Ok(()), Ok(())) => {
+                            if reference_correction.x_shifts == candidate_correction.x_shifts {
+                                matched = matched.saturating_add(1);
+                            } else {
+                                mismatched = mismatched.saturating_add(1);
+                                if first_mismatch_syndrome_digest.is_none() {
+                                    first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                                }
+                            }
+                        }
+                        (Err(_), Ok(())) => {
+                            reference_failures = reference_failures.saturating_add(1);
+                            if first_mismatch_syndrome_digest.is_none() {
+                                first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                            }
+                        }
+                        (Ok(()), Err(_)) => {
+                            candidate_failures = candidate_failures.saturating_add(1);
+                            if first_mismatch_syndrome_digest.is_none() {
+                                first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                            }
+                        }
+                        (Err(_), Err(_)) => {
+                            reference_failures = reference_failures.saturating_add(1);
+                            candidate_failures = candidate_failures.saturating_add(1);
+                            if first_mismatch_syndrome_digest.is_none() {
+                                first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                            }
                         }
                     }
                 }
-                (Err(_), Ok(_)) => {
+                (Err(_), Ok(candidate_correction)) => {
                     reference_failures = reference_failures.saturating_add(1);
+                    if validate_correction_binding(
+                        &candidate_correction,
+                        &syndrome,
+                        &candidate_descriptor,
+                        code,
+                    )
+                    .is_err()
+                    {
+                        candidate_failures = candidate_failures.saturating_add(1);
+                    }
                     if first_mismatch_syndrome_digest.is_none() {
                         first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
                     }
                 }
-                (Ok(_), Err(_)) => {
+                (Ok(reference_correction), Err(_)) => {
                     candidate_failures = candidate_failures.saturating_add(1);
+                    if validate_correction_binding(
+                        &reference_correction,
+                        &syndrome,
+                        &reference_descriptor,
+                        code,
+                    )
+                    .is_err()
+                    {
+                        reference_failures = reference_failures.saturating_add(1);
+                    }
                     if first_mismatch_syndrome_digest.is_none() {
                         first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
                     }
@@ -1226,6 +1359,23 @@ impl std::error::Error for QecError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecoderError {
     Data(QecError),
+    InvalidDecoderDescriptor {
+        reason: String,
+    },
+    CorrectionCodeMismatch {
+        expected: RepetitionCodeSpec,
+        actual: RepetitionCodeSpec,
+    },
+    CorrectionSyndromeMismatch {
+        expected: String,
+        actual: String,
+    },
+    CorrectionDecoderMismatch {
+        expected_id: String,
+        expected_version: String,
+        actual_id: String,
+        actual_version: String,
+    },
     CodeMismatch {
         expected: RepetitionCodeSpec,
         actual: RepetitionCodeSpec,
@@ -1258,6 +1408,30 @@ impl fmt::Display for DecoderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Data(error) => write!(f, "{error}"),
+            Self::InvalidDecoderDescriptor { reason } => {
+                write!(f, "invalid decoder descriptor: {reason}")
+            }
+            Self::CorrectionCodeMismatch { expected, actual } => write!(
+                f,
+                "correction code mismatch: expected prime-d repetition({}, {}), got ({}, {})",
+                expected.dimension,
+                expected.length,
+                actual.dimension,
+                actual.length
+            ),
+            Self::CorrectionSyndromeMismatch { expected, actual } => write!(
+                f,
+                "correction syndrome provenance mismatch: expected {expected}, got {actual}"
+            ),
+            Self::CorrectionDecoderMismatch {
+                expected_id,
+                expected_version,
+                actual_id,
+                actual_version,
+            } => write!(
+                f,
+                "correction decoder provenance mismatch: expected {expected_id}@{expected_version}, got {actual_id}@{actual_version}"
+            ),
             Self::CodeMismatch { expected, actual } => write!(
                 f,
                 "syndrome/decoder code mismatch: expected prime-d repetition({}, {}), got ({}, {})",
