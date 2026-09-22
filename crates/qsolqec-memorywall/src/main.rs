@@ -82,6 +82,11 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
     let fly_args = normalized_fly_child_args(args)?;
+    if !fly_args.is_empty()
+        && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
+    {
+        return Err("Fly-specific options require fly-phi664 in --representations".into());
+    }
 
     let mut points = Vec::new();
     let mut child_failures = Vec::new();
@@ -454,6 +459,36 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("requires an integer MiB value"));
+    }
+
+    #[test]
+    fn fly_representation_aliases_parse() {
+        for value in ["fly-phi664", "fly", "virtualized"] {
+            assert_eq!(
+                parse_representation(value).unwrap(),
+                RepresentationKind::FlyPhi664Virtualized
+            );
+        }
+    }
+
+    #[test]
+    fn fly_options_configure_only_the_fly_representation() {
+        let args = vec![
+            "--fly-page-span".to_owned(),
+            "64".to_owned(),
+            "--fly-tile-span".to_owned(),
+            "32".to_owned(),
+            "--fly-scratch-domains".to_owned(),
+            "2".to_owned(),
+        ];
+        let mut fly = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 3, 1);
+        configure_fly_spec(&mut fly, &args).unwrap();
+        assert_eq!(fly.fly.page_span, 64);
+        assert_eq!(fly.fly.tile_span, 32);
+        assert_eq!(fly.fly.scratch_domains, 2);
+
+        let mut dense = ExperimentSpec::new(RepresentationKind::Dense, 2, 3, 1);
+        assert!(configure_fly_spec(&mut dense, &args).is_err());
     }
 
     #[test]
