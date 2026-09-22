@@ -691,7 +691,7 @@ impl Decoder for ExactRepetitionXDecoder {
             .into_iter()
             .map(|shift| neg_mod(shift, d))
             .collect::<Vec<_>>();
-        Correction::for_decoder(self.code, correction, syndrome, &self.descriptor())
+        Correction::for_decoder(self.code, correction, syndrome, &Decoder::descriptor(self))
     }
 }
 
@@ -780,7 +780,7 @@ impl Decoder for LookupRepetitionXDecoder {
             self.code,
             correction,
             syndrome,
-            &self.descriptor(),
+            &Decoder::descriptor(self),
         )
     }
 }
