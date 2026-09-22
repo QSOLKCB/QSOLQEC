@@ -1,7 +1,5 @@
 use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor};
-use qsolqec_qec::{
-    Correction, Decoder, DecoderError, RepetitionCodeSpec, Syndrome,
-};
+use qsolqec_qec::{Correction, Decoder, DecoderError, RepetitionCodeSpec, Syndrome};
 
 struct ExternalCandidate {
     code: RepetitionCodeSpec,
@@ -32,12 +30,7 @@ impl Decoder for ExternalCandidate {
 
     fn decode(&self, syndrome: &Syndrome) -> Result<Correction, DecoderError> {
         let shifts = vec![0; self.code.length()];
-        Correction::for_decoder(
-            self.code,
-            shifts,
-            syndrome,
-            &self.descriptor_value(),
-        )
+        Correction::for_decoder(self.code, shifts, syndrome, &self.descriptor_value())
     }
 }
 
