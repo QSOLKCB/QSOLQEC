@@ -1223,8 +1223,8 @@ mod tests {
 
     #[test]
     fn successful_receipts_record_exact_operation_support() {
-        let dense = run_experiment(&ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1))
-            .unwrap();
+        let dense =
+            run_experiment(&ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1)).unwrap();
         assert_eq!(dense.body.operation_support, OperationSupportClass::Exact);
 
         let stabilizer = run_experiment(&ExperimentSpec::new(
