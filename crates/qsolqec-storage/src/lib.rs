@@ -272,10 +272,12 @@ pub struct MaterializationWindow {
 
 impl MaterializationWindow {
     pub fn new(
+        geometry: &StorageGeometryIdentity,
         start: PackedAddress,
         len: u128,
         logical_address_count: u128,
     ) -> Result<Self, StorageContractError> {
+        start.validate_geometry(geometry)?;
         if len == 0 {
             return Err(StorageContractError::EmptyMaterializationWindow);
         }
@@ -325,10 +327,23 @@ pub enum PhysicalBacking {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageExactness {
     Exact,
-    Approximate {
-        method: String,
-        error_contract: String,
-    },
+    Approximate(StorageApproximation),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageApproximation {
+    method: String,
+    error_contract: String,
+}
+
+impl StorageApproximation {
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    pub fn error_contract(&self) -> &str {
+        &self.error_contract
+    }
 }
 
 impl StorageExactness {
@@ -338,10 +353,10 @@ impl StorageExactness {
     ) -> Result<Self, StorageContractError> {
         let method = nonempty(method.into(), "approximation method")?;
         let error_contract = nonempty(error_contract.into(), "approximation error contract")?;
-        Ok(Self::Approximate {
+        Ok(Self::Approximate(StorageApproximation {
             method,
             error_contract,
-        })
+        }))
     }
 }
 
@@ -374,8 +389,9 @@ impl PersistenceBoundary {
 
 /// Deterministic partitioning of logical addresses into bounded tiles and
 /// stable owner domains.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TileOwnershipPolicy {
+    geometry_digest: String,
     tile_span: u128,
     owner_count: u32,
 }
@@ -387,7 +403,11 @@ pub struct TileOwnership {
 }
 
 impl TileOwnershipPolicy {
-    pub fn new(tile_span: u128, owner_count: u32) -> Result<Self, StorageContractError> {
+    pub fn new(
+        geometry: &StorageGeometryIdentity,
+        tile_span: u128,
+        owner_count: u32,
+    ) -> Result<Self, StorageContractError> {
         if tile_span == 0 {
             return Err(StorageContractError::ZeroTileSpan);
         }
@@ -395,23 +415,30 @@ impl TileOwnershipPolicy {
             return Err(StorageContractError::ZeroOwnerCount);
         }
         Ok(Self {
+            geometry_digest: geometry.digest.clone(),
             tile_span,
             owner_count,
         })
     }
 
-    pub const fn tile_span(self) -> u128 {
+    pub const fn tile_span(&self) -> u128 {
         self.tile_span
     }
 
-    pub const fn owner_count(self) -> u32 {
+    pub const fn owner_count(&self) -> u32 {
         self.owner_count
     }
 
-    pub fn owner_of(self, address: &PackedAddress) -> TileOwnership {
+    pub fn owner_of(
+        &self,
+        address: &PackedAddress,
+    ) -> Result<TileOwnership, StorageContractError> {
+        if address.geometry_digest != self.geometry_digest {
+            return Err(StorageContractError::GeometryMismatch);
+        }
         let tile_index = address.index / self.tile_span;
         let owner = (tile_index % u128::from(self.owner_count)) as u32;
-        TileOwnership { tile_index, owner }
+        Ok(TileOwnership { tile_index, owner })
     }
 }
 
@@ -506,13 +533,10 @@ fn storage_artifact_id(snapshot: &StorageSnapshot) -> String {
     });
     match &facts.exactness {
         StorageExactness::Exact => canonical.push_str("exact"),
-        StorageExactness::Approximate {
-            method,
-            error_contract,
-        } => {
+        StorageExactness::Approximate(spec) => {
             canonical.push_str("approximate");
-            canonical.push_str(method);
-            canonical.push_str(error_contract);
+            canonical.push_str(spec.method());
+            canonical.push_str(spec.error_contract());
         }
     }
     canonical.push_str(facts.persistence.format());
@@ -797,11 +821,12 @@ mod tests {
 
     #[test]
     fn materialization_windows_are_bounded() {
-        let start = PackedAddress::bind(&geometry("1"), 20, 24).unwrap();
-        let window = MaterializationWindow::new(start.clone(), 4, 24).unwrap();
+        let geometry = geometry("1");
+        let start = PackedAddress::bind(&geometry, 20, 24).unwrap();
+        let window = MaterializationWindow::new(&geometry, start.clone(), 4, 24).unwrap();
         assert_eq!(window.end_exclusive(), 24);
         assert_eq!(
-            MaterializationWindow::new(start, 5, 24),
+            MaterializationWindow::new(&geometry, start, 5, 24),
             Err(StorageContractError::MaterializationWindowOutOfRange {
                 start: 20,
                 len: 5,
@@ -815,21 +840,27 @@ mod tests {
         let geometry = geometry("1");
         let start = PackedAddress::bind(&geometry, u128::MAX - 1, u128::MAX).unwrap();
         assert_eq!(
-            MaterializationWindow::new(start, 2, u128::MAX),
+            MaterializationWindow::new(&geometry, start, 2, u128::MAX),
             Err(StorageContractError::AddressArithmeticOverflow)
         );
     }
 
     #[test]
     fn ownership_is_deterministic_from_tile_and_owner_count() {
-        let policy = TileOwnershipPolicy::new(4, 3).unwrap();
-        let address = PackedAddress::bind(&geometry("1"), 17, 24).unwrap();
+        let geometry = geometry("1");
+        let policy = TileOwnershipPolicy::new(&geometry, 4, 3).unwrap();
+        let address = PackedAddress::bind(&geometry, 17, 24).unwrap();
         assert_eq!(
             policy.owner_of(&address),
-            TileOwnership {
+            Ok(TileOwnership {
                 tile_index: 4,
                 owner: 1,
-            }
+            })
+        );
+        let wrong = PackedAddress::bind(&geometry("2"), 17, 24).unwrap();
+        assert_eq!(
+            policy.owner_of(&wrong),
+            Err(StorageContractError::GeometryMismatch)
         );
     }
 
