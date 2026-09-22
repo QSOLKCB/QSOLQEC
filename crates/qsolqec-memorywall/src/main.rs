@@ -74,10 +74,10 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         return Err("--start-n must not exceed --end-n".into());
     }
 
-    let max_logical_mib = optional_mib(args, "--max-logical-mib")?
-        .map(|bytes| (bytes / (1024 * 1024)).to_string());
-    let oracle_limit_mib = optional_mib(args, "--oracle-limit-mib")?
-        .map(|bytes| (bytes / (1024 * 1024)).to_string());
+    let max_logical_mib =
+        optional_mib(args, "--max-logical-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
+    let oracle_limit_mib =
+        optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
 
     let mut points = Vec::new();
