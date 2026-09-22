@@ -82,8 +82,7 @@ fn sweep_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         optional_mib(args, "--oracle-limit-mib")?.map(|bytes| (bytes / (1024 * 1024)).to_string());
     let executable = std::env::current_exe()?;
     let fly_args = normalized_fly_child_args(args)?;
-    if !fly_args.is_empty()
-        && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
+    if !fly_args.is_empty() && !representations.contains(&RepresentationKind::FlyPhi664Virtualized)
     {
         return Err("Fly-specific options require fly-phi664 in --representations".into());
     }
