@@ -233,8 +233,8 @@ impl FlyQdnState {
         let mut exact_bits = true;
         let mut max_absolute_error = 0.0f64;
         for (left, right) in actual.iter().zip(reference) {
-            exact_bits &= left.re.to_bits() == right.re.to_bits()
-                && left.im.to_bits() == right.im.to_bits();
+            exact_bits &=
+                left.re.to_bits() == right.re.to_bits() && left.im.to_bits() == right.im.to_bits();
             max_absolute_error = max_absolute_error.max((*left - *right).norm());
         }
         Ok(AmplitudeComparison {
@@ -276,9 +276,16 @@ pub fn module_descriptor() -> ModuleDescriptor {
     ModuleDescriptor {
         id: REPRESENTATION_ID.into(),
         version: env!("CARGO_PKG_VERSION").into(),
-        capabilities: vec![Capability::StateRepresentation, Capability::OperationExecution],
+        capabilities: vec![
+            Capability::StateRepresentation,
+            Capability::OperationExecution,
+        ],
         consumes: vec![DataKind::QuditState, DataKind::OperationStream],
-        produces: vec![DataKind::EncodedState, DataKind::QuditState, DataKind::StateTransition],
+        produces: vec![
+            DataKind::EncodedState,
+            DataKind::QuditState,
+            DataKind::StateTransition,
+        ],
         experimental: true,
         maturity: Maturity::E3OracleCompared,
     }
@@ -651,7 +658,8 @@ mod tests {
             Complex64::new(0.0, 0.0),
             Complex64::new(1.0, 0.0),
         ];
-        let state = FlyQdnState::from_amplitudes(codec(vec![10]), 64, spec, amplitudes.clone()).unwrap();
+        let state =
+            FlyQdnState::from_amplitudes(codec(vec![10]), 64, spec, amplitudes.clone()).unwrap();
         assert_eq!(state.storage().materialized_address_count(), 3);
         let round_trip = state.reconstruct().unwrap();
         for (actual, expected) in round_trip.iter().zip(&amplitudes) {
@@ -681,7 +689,13 @@ mod tests {
     fn rejects_state_larger_than_phi664_namespace() {
         let spec = SystemSpec::new(3, 6).unwrap();
         let error = FlyQdnState::zero(codec(vec![10]), 64, spec).unwrap_err();
-        assert!(matches!(error, FlyQdnError::InsufficientLogicalAddresses { required: 729, available: 664 }));
+        assert!(matches!(
+            error,
+            FlyQdnError::InsufficientLogicalAddresses {
+                required: 729,
+                available: 664
+            }
+        ));
     }
 
     #[test]
@@ -693,27 +707,48 @@ mod tests {
             Complex64::new(-0.5, 0.0),
             Complex64::new(0.0, -0.5),
         ];
-        let first = FlyQdnState::from_amplitudes(codec(vec![10]), 64, spec, amplitudes.clone()).unwrap();
+        let first =
+            FlyQdnState::from_amplitudes(codec(vec![10]), 64, spec, amplitudes.clone()).unwrap();
         let second = FlyQdnState::from_amplitudes(codec(vec![99]), 64, spec, amplitudes).unwrap();
-        assert_eq!(first.observation_snapshot().state_digest, second.observation_snapshot().state_digest);
-        assert_ne!(first.storage_snapshot().facts().geometry.digest(), second.storage_snapshot().facts().geometry.digest());
+        assert_eq!(
+            first.observation_snapshot().state_digest,
+            second.observation_snapshot().state_digest
+        );
+        assert_ne!(
+            first.storage_snapshot().facts().geometry.digest(),
+            second.storage_snapshot().facts().geometry.digest()
+        );
     }
 
     #[test]
     fn supported_clifford_style_contract_matches_dense_oracle() {
         let spec = SystemSpec::new(3, 2).unwrap();
         let amplitudes = vec![
-            Complex64::new(0.10, 0.02), Complex64::new(-0.20, 0.03),
-            Complex64::new(0.05, -0.07), Complex64::new(0.15, 0.11),
-            Complex64::new(-0.09, 0.04), Complex64::new(0.12, -0.08),
-            Complex64::new(0.03, 0.06), Complex64::new(-0.02, -0.05),
+            Complex64::new(0.10, 0.02),
+            Complex64::new(-0.20, 0.03),
+            Complex64::new(0.05, -0.07),
+            Complex64::new(0.15, 0.11),
+            Complex64::new(-0.09, 0.04),
+            Complex64::new(0.12, -0.08),
+            Complex64::new(0.03, 0.06),
+            Complex64::new(-0.02, -0.05),
             Complex64::new(0.07, 0.01),
         ];
         let operations = vec![
-            Operation::WeylX { target: 0, shift: 2 },
-            Operation::WeylZ { target: 1, power: 1 },
+            Operation::WeylX {
+                target: 0,
+                shift: 2,
+            },
+            Operation::WeylZ {
+                target: 1,
+                power: 1,
+            },
             Operation::Fourier { target: 0 },
-            Operation::ControlledShift { control: 0, target: 1, shift: 2 },
+            Operation::ControlledShift {
+                control: 0,
+                target: 1,
+                shift: 2,
+            },
             Operation::Swap { a: 0, b: 1 },
         ];
         let mut dense = DenseState::from_amplitudes(spec, amplitudes.clone()).unwrap();
@@ -731,9 +766,18 @@ mod tests {
         let spec = SystemSpec::new(3, 2).unwrap();
         let mut state = FlyQdnState::zero(codec(vec![10]), 64, spec).unwrap();
         let before = state.observation_snapshot().state_digest;
-        let operation = Operation::LocalPermutation { target: 0, map: vec![1, 2, 0] };
-        assert_eq!(state.support_for(&operation).unwrap(), OperationSupport::Unsupported);
-        assert!(matches!(state.apply_operation(&operation), Err(FlyQdnError::UnsupportedOperation { .. })));
+        let operation = Operation::LocalPermutation {
+            target: 0,
+            map: vec![1, 2, 0],
+        };
+        assert_eq!(
+            state.support_for(&operation).unwrap(),
+            OperationSupport::Unsupported
+        );
+        assert!(matches!(
+            state.apply_operation(&operation),
+            Err(FlyQdnError::UnsupportedOperation { .. })
+        ));
         assert_eq!(before, state.observation_snapshot().state_digest);
     }
 
@@ -741,12 +785,25 @@ mod tests {
     fn glass_box_observes_qdn_bound_state() {
         let spec = SystemSpec::new(2, 2).unwrap();
         let mut state = FlyQdnState::zero(codec(vec![10]), 64, spec).unwrap();
-        let operation = Operation::WeylX { target: 0, shift: 1 };
+        let operation = Operation::WeylX {
+            target: 0,
+            shift: 1,
+        };
         let mut glassbox = GlassBox::new(NumericalContract::exact_bits_f64());
-        let observed = glassbox.observe_operation(&mut state, &operation, |state| state.apply_operation(&operation)).unwrap();
+        let observed = glassbox
+            .observe_operation(&mut state, &operation, |state| {
+                state.apply_operation(&operation)
+            })
+            .unwrap();
         assert!(observed.result.is_ok());
-        assert_ne!(observed.receipt.before.snapshot.state_digest, observed.receipt.after.snapshot.state_digest);
-        assert_eq!(observed.receipt.after.snapshot.representation.id, REPRESENTATION_ID);
+        assert_ne!(
+            observed.receipt.before.snapshot.state_digest,
+            observed.receipt.after.snapshot.state_digest
+        );
+        assert_eq!(
+            observed.receipt.after.snapshot.representation.id,
+            REPRESENTATION_ID
+        );
     }
 
     #[test]
@@ -754,8 +811,12 @@ mod tests {
         let descriptor = module_descriptor();
         descriptor.validate().unwrap();
         assert_eq!(descriptor.maturity, Maturity::E3OracleCompared);
-        assert!(descriptor.capabilities.contains(&Capability::StateRepresentation));
-        assert!(descriptor.capabilities.contains(&Capability::OperationExecution));
+        assert!(descriptor
+            .capabilities
+            .contains(&Capability::StateRepresentation));
+        assert!(descriptor
+            .capabilities
+            .contains(&Capability::OperationExecution));
         assert!(descriptor.produces.contains(&DataKind::EncodedState));
     }
 }
