@@ -282,6 +282,28 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
 
     #[test]
+    fn optional_memory_flags_require_values() {
+        for flag in ["--max-logical-mib", "--oracle-limit-mib"] {
+            let args = vec![flag.to_owned()];
+            let error = optional_mib(&args, flag).unwrap_err().to_string();
+            assert!(error.contains("requires an integer MiB value"));
+        }
+    }
+
+    #[test]
+    fn optional_memory_flags_reject_another_flag_as_value() {
+        let args = vec![
+            "--max-logical-mib".to_owned(),
+            "--oracle-limit-mib".to_owned(),
+            "8".to_owned(),
+        ];
+        let error = optional_mib(&args, "--max-logical-mib")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("requires an integer MiB value"));
+    }
+
+    #[test]
     fn child_failure_preserves_requested_point_and_signal() {
         let output = std::process::Output {
             status: std::process::ExitStatus::from_raw(9),
