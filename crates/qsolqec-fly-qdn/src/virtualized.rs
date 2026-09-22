@@ -428,6 +428,22 @@ impl PageBuilder {
         Ok(())
     }
 
+    fn insert_amplitude(
+        &mut self,
+        state_len: usize,
+        page_span: usize,
+        index: usize,
+        amplitude: Complex64,
+    ) -> Result<(), VirtualizationError> {
+        if !amplitude.re.is_finite() || !amplitude.im.is_finite() {
+            return Err(FlyQdnError::NonFiniteAmplitude { index }.into());
+        }
+        if !is_implicit_positive_zero(amplitude) {
+            self.insert(state_len, page_span, index, encode_amplitude(amplitude))?;
+        }
+        Ok(())
+    }
+
     fn finish(
         self,
         state_len: usize,
@@ -1172,7 +1188,9 @@ impl VirtualExecutor {
             .step_by(self.config.tile_span)
             .enumerate()
         {
-            let end = (start + self.config.tile_span).min(state.state_len);
+            let end = start
+                .saturating_add(self.config.tile_span)
+                .min(state.state_len);
             let scratch = self.scratch.worker_mut(dispatch);
             scratch.clear();
             for index in start..end {
@@ -1187,14 +1205,12 @@ impl VirtualExecutor {
             }
             for (offset, index) in (start..end).enumerate() {
                 let output = scratch.output(offset);
-                if !is_implicit_positive_zero(output) {
-                    builder.insert(
-                        state.state_len,
-                        self.config.page_span,
-                        index,
-                        encode_amplitude(output),
-                    )?;
-                }
+                builder.insert_amplitude(
+                    state.state_len,
+                    self.config.page_span,
+                    index,
+                    output,
+                )?;
             }
             self.metrics.worker_dispatches = self.metrics.worker_dispatches.saturating_add(1);
             self.metrics.addresses_scanned = self
@@ -1271,14 +1287,12 @@ impl VirtualExecutor {
                     )
                     .ok_or(VirtualizationError::IndexArithmeticOverflow)?;
                 let output = scratch.output(output_digit);
-                if !is_implicit_positive_zero(output) {
-                    builder.insert(
-                        state.state_len,
-                        self.config.page_span,
-                        index,
-                        encode_amplitude(output),
-                    )?;
-                }
+                builder.insert_amplitude(
+                    state.state_len,
+                    self.config.page_span,
+                    index,
+                    output,
+                )?;
             }
 
             self.metrics.worker_dispatches = self.metrics.worker_dispatches.saturating_add(1);
@@ -1372,6 +1386,7 @@ fn mul_mod(a: usize, b: usize, modulus: usize) -> usize {
 
 #[derive(Debug, Clone)]
 pub struct MaterializedTile {
+    artifact_id: String,
     state_digest: String,
     tile_index: usize,
     owner: u32,
@@ -1380,6 +1395,10 @@ pub struct MaterializedTile {
 }
 
 impl MaterializedTile {
+    pub fn artifact_id(&self) -> &str {
+        &self.artifact_id
+    }
+
     pub fn state_digest(&self) -> &str {
         &self.state_digest
     }
@@ -1448,7 +1467,7 @@ type SharedCell = OnceLock<Result<Arc<MaterializedTile>, SharedMaterializationEr
 #[derive(Debug)]
 pub struct SharedTileMaterializer {
     state: Arc<VirtualFlyQdnState>,
-    cells: Mutex<BTreeMap<usize, Arc<SharedCell>>>,
+    domains: Vec<Mutex<BTreeMap<usize, Arc<SharedCell>>>>,
     in_flight: AtomicUsize,
     generations: AtomicU64,
     coalesced_waiters: AtomicU64,
@@ -1456,9 +1475,12 @@ pub struct SharedTileMaterializer {
 
 impl SharedTileMaterializer {
     pub fn new(state: Arc<VirtualFlyQdnState>) -> Self {
+        let domains = (0..state.config.owner_count)
+            .map(|_| Mutex::new(BTreeMap::new()))
+            .collect();
         Self {
             state,
-            cells: Mutex::new(BTreeMap::new()),
+            domains,
             in_flight: AtomicUsize::new(0),
             generations: AtomicU64::new(0),
             coalesced_waiters: AtomicU64::new(0),
@@ -1494,9 +1516,9 @@ impl SharedTileMaterializer {
     ) -> Result<Arc<MaterializedTile>, SharedMaterializationError> {
         self.check_request(tile_index, request)?;
 
+        let domain = &self.domains[request.owner as usize];
         let (cell, inserted) = {
-            let mut cells = self
-                .cells
+            let mut cells = domain
                 .lock()
                 .map_err(|_| SharedMaterializationError::CoordinationPoisoned)?;
             if let Some(existing) = cells.get(&tile_index) {
@@ -1540,8 +1562,7 @@ impl SharedTileMaterializer {
         }
 
         if result.is_err() {
-            let mut cells = self
-                .cells
+            let mut cells = domain
                 .lock()
                 .map_err(|_| SharedMaterializationError::CoordinationPoisoned)?;
             if cells
@@ -1583,7 +1604,9 @@ impl SharedTileMaterializer {
         let start = tile_index
             .checked_mul(self.state.config.tile_span)
             .ok_or(SharedMaterializationError::IndexArithmeticOverflow)?;
-        let end = (start + self.state.config.tile_span).min(self.state.state_len);
+        let end = start
+            .saturating_add(self.state.config.tile_span)
+            .min(self.state.state_len);
         let len = end.saturating_sub(start);
 
         let mut amplitudes = Vec::new();
@@ -1594,10 +1617,31 @@ impl SharedTileMaterializer {
             amplitudes.push(self.state.amplitude_at_validated(index));
         }
 
+        let owner =
+            (tile_index as u128 % u128::from(self.state.config.owner_count)) as u32;
+        let mut identity = Vec::new();
+        push_len_bytes(
+            &mut identity,
+            b"qsolqec.fly-qdn.shared-materialized-tile.v1",
+        );
+        push_len_bytes(&mut identity, self.state.state_digest.as_bytes());
+        push_len_bytes(
+            &mut identity,
+            self.state.codec.manifest().source_identity().digest().as_bytes(),
+        );
+        push_len_bytes(&mut identity, self.state.codec.geometry().digest().as_bytes());
+        push_len_bytes(&mut identity, self.state.config.digest().as_bytes());
+        identity.extend_from_slice(&(tile_index as u128).to_be_bytes());
+        identity.extend_from_slice(&(start as u128).to_be_bytes());
+        identity.extend_from_slice(&(len as u128).to_be_bytes());
+        identity.extend_from_slice(&u128::from(owner).to_be_bytes());
+        let artifact_id = format!("sha256:{}", sha256_hex(&identity));
+
         Ok(Arc::new(MaterializedTile {
+            artifact_id,
             state_digest: self.state.state_digest.clone(),
             tile_index,
-            owner: (tile_index as u128 % u128::from(self.state.config.owner_count)) as u32,
+            owner,
             start,
             amplitudes,
         }))
