@@ -483,7 +483,12 @@ impl VirtualFlyQdnState {
         let mut builder = PageBuilder::default();
         for (index, amplitude) in amplitudes.iter().copied().enumerate() {
             if !is_implicit_positive_zero(amplitude) {
-                builder.insert(expected, config.page_span, index, encode_amplitude(amplitude))?;
+                builder.insert(
+                    expected,
+                    config.page_span,
+                    index,
+                    encode_amplitude(amplitude),
+                )?;
             }
         }
         let pages = builder.finish(expected, config)?;
@@ -618,7 +623,11 @@ impl VirtualFlyQdnState {
     fn amplitude_at_validated(&self, index: usize) -> Complex64 {
         let page_index = index / self.config.page_span;
         let offset = index % self.config.page_span;
-        match self.pages.get(&page_index).and_then(|page| page.get(offset)) {
+        match self
+            .pages
+            .get(&page_index)
+            .and_then(|page| page.get(offset))
+        {
             Some(payload) => {
                 // Fixed-size pages can only contain payloads admitted through the
                 // finite-amplitude constructors or exact operation paths.
@@ -627,12 +636,6 @@ impl VirtualFlyQdnState {
             }
             None => Complex64::new(0.0, 0.0),
         }
-    }
-
-    fn payload_at_validated(&self, index: usize) -> Option<Payload> {
-        let page_index = index / self.config.page_span;
-        let offset = index % self.config.page_span;
-        self.pages.get(&page_index).and_then(|page| page.get(offset))
     }
 
     fn materialized_entries(&self) -> Vec<(usize, Payload)> {
@@ -648,12 +651,12 @@ impl VirtualFlyQdnState {
 
     pub fn reconstruct(&self) -> Result<Vec<Complex64>, VirtualizationError> {
         let mut amplitudes = Vec::new();
-        amplitudes
-            .try_reserve_exact(self.state_len)
-            .map_err(|_| VirtualizationError::AllocationFailed {
+        amplitudes.try_reserve_exact(self.state_len).map_err(|_| {
+            VirtualizationError::AllocationFailed {
                 elements: self.state_len,
                 kind: "full reconstruction",
-            })?;
+            }
+        })?;
         for index in 0..self.state_len {
             amplitudes.push(self.amplitude_at_validated(index));
         }
@@ -708,8 +711,7 @@ impl VirtualFlyQdnState {
 
     pub fn tracked_resident_bytes(&self) -> u128 {
         let body_id_index = self.codec.macro_body_ids().len() as u128 * 8;
-        let page_keys =
-            self.pages.len() as u128 * std::mem::size_of::<usize>() as u128;
+        let page_keys = self.pages.len() as u128 * std::mem::size_of::<usize>() as u128;
         let page_bytes: u128 = self
             .pages
             .values()
@@ -834,12 +836,12 @@ impl WorkerScratch {
     fn new(capacity: usize) -> Result<Self, VirtualizationError> {
         fn touched(capacity: usize) -> Result<Vec<f64>, VirtualizationError> {
             let mut values = Vec::new();
-            values
-                .try_reserve_exact(capacity)
-                .map_err(|_| VirtualizationError::AllocationFailed {
+            values.try_reserve_exact(capacity).map_err(|_| {
+                VirtualizationError::AllocationFailed {
                     elements: capacity,
                     kind: "worker-local SoA scratch",
-                })?;
+                }
+            })?;
             values.resize(capacity, 0.0);
             values.clear();
             Ok(values)
@@ -996,8 +998,7 @@ impl VirtualExecutor {
             let next = self.apply_fresh(&candidate, operation)?;
             pending.push((signature, Arc::new(next.clone())));
             candidate = next;
-            self.metrics.operations_executed =
-                self.metrics.operations_executed.saturating_add(1);
+            self.metrics.operations_executed = self.metrics.operations_executed.saturating_add(1);
         }
 
         // Publish reusable generations only after the entire requested sequence
@@ -1038,12 +1039,8 @@ impl VirtualExecutor {
         operation: &Operation,
     ) -> Result<VirtualFlyQdnState, VirtualizationError> {
         match operation {
-            Operation::WeylX { target, shift } => {
-                self.apply_weyl_x(state, *target, *shift)
-            }
-            Operation::WeylZ { target, power } => {
-                self.apply_weyl_z(state, *target, *power)
-            }
+            Operation::WeylX { target, shift } => self.apply_weyl_x(state, *target, *shift),
+            Operation::WeylZ { target, power } => self.apply_weyl_z(state, *target, *power),
             Operation::Fourier { target } => self.apply_fourier(state, *target),
             Operation::ControlledShift {
                 control,
@@ -1082,8 +1079,7 @@ impl VirtualExecutor {
 
         for (index, payload) in entries {
             let digit = (index / stride) % dimension;
-            let destination =
-                replace_digit(index, digit, (digit + reduced) % dimension, stride)?;
+            let destination = replace_digit(index, digit, (digit + reduced) % dimension, stride)?;
             builder.insert(state.state_len, self.config.page_span, destination, payload)?;
         }
         self.finish_operation(state, builder)
@@ -1259,10 +1255,8 @@ impl VirtualExecutor {
                 let mut sum = Complex64::new(0.0, 0.0);
                 for input_digit in 0..dimension {
                     let exponent = mul_mod(input_digit, output_digit, dimension);
-                    let angle =
-                        std::f64::consts::TAU * exponent as f64 / dimension as f64;
-                    sum += scratch.input(input_digit)
-                        * Complex64::from_polar(1.0, angle);
+                    let angle = std::f64::consts::TAU * exponent as f64 / dimension as f64;
+                    sum += scratch.input(input_digit) * Complex64::from_polar(1.0, angle);
                 }
                 scratch.push_output(sum * scale);
             }
@@ -1443,7 +1437,8 @@ impl TileRequest {
     }
 
     fn deadline_elapsed(&self) -> bool {
-        self.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+        self.deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
     }
 }
 
@@ -1707,7 +1702,10 @@ impl std::fmt::Display for VirtualizationError {
                 write!(f, "operation produced duplicate output index {index}")
             }
             Self::OutputIndexOutOfRange { index, state_len } => {
-                write!(f, "output index {index} is outside Q(d,n) state length {state_len}")
+                write!(
+                    f,
+                    "output index {index} is outside Q(d,n) state length {state_len}"
+                )
             }
             Self::AllocationFailed { elements, kind } => {
                 write!(f, "failed to allocate {elements} elements for {kind}")
@@ -1722,7 +1720,10 @@ impl std::fmt::Display for VirtualizationError {
                 f.write_str("exact Gate-B path unexpectedly reported approximate support")
             }
             Self::UnsupportedOperation { kind } => {
-                write!(f, "operation {kind} is unsupported by the Gate-B exact adapter")
+                write!(
+                    f,
+                    "operation {kind} is unsupported by the Gate-B exact adapter"
+                )
             }
         }
     }
@@ -1975,7 +1976,10 @@ mod tests {
 
         assert_eq!(executor.metrics().cache_hits, 1);
         assert_eq!(first.state_digest(), second.state_digest());
-        assert_bits_equal(&first.reconstruct().unwrap(), &second.reconstruct().unwrap());
+        assert_bits_equal(
+            &first.reconstruct().unwrap(),
+            &second.reconstruct().unwrap(),
+        );
     }
 
     #[test]
@@ -2057,20 +2061,14 @@ mod tests {
         let cancellation = Arc::new(AtomicBool::new(true));
         assert_eq!(
             materializer
-                .materialize(
-                    0,
-                    &TileRequest::new(owner).with_cancellation(cancellation)
-                )
+                .materialize(0, &TileRequest::new(owner).with_cancellation(cancellation))
                 .unwrap_err(),
             SharedMaterializationError::Cancelled
         );
 
         assert_eq!(
             materializer
-                .materialize(
-                    0,
-                    &TileRequest::new(owner).with_deadline(Instant::now())
-                )
+                .materialize(0, &TileRequest::new(owner).with_deadline(Instant::now()))
                 .unwrap_err(),
             SharedMaterializationError::DeadlineExceeded
         );
