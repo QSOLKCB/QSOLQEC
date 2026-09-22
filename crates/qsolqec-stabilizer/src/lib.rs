@@ -108,10 +108,19 @@ impl PrimeStabilizerState {
         self.generators.len() as u128 * scalars_per_generator * std::mem::size_of::<usize>() as u128
     }
 
-    /// Report support without silently falling back to another representation.
-    pub fn support_for(&self, operation: &Operation) -> Result<OperationSupport, StabilizerError> {
+    /// Report support for a declared system without constructing a state.
+    pub fn support_for_spec(
+        spec: SystemSpec,
+        operation: &Operation,
+    ) -> Result<OperationSupport, StabilizerError> {
+        if !is_prime(spec.dimension()) {
+            return Err(StabilizerError::NonPrimeDimension {
+                dimension: spec.dimension(),
+            });
+        }
+
         operation
-            .validate_for(self.spec)
+            .validate_for(spec)
             .map_err(StabilizerError::InvalidOperation)?;
 
         Ok(match operation {
@@ -124,6 +133,11 @@ impl PrimeStabilizerState {
                 OperationSupport::Unsupported
             }
         })
+    }
+
+    /// Report support without silently falling back to another representation.
+    pub fn support_for(&self, operation: &Operation) -> Result<OperationSupport, StabilizerError> {
+        Self::support_for_spec(self.spec, operation)
     }
 
     pub fn apply_operation(&mut self, operation: &Operation) -> Result<(), StabilizerError> {
