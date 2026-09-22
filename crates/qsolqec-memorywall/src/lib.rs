@@ -175,6 +175,19 @@ pub struct HostInfo {
     pub gpus: Vec<GpuInfo>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessMemoryBaseline {
+    pub rss_bytes: Option<u64>,
+    pub peak_rss_bytes: Option<u64>,
+}
+
+pub fn capture_process_memory_baseline() -> ProcessMemoryBaseline {
+    ProcessMemoryBaseline {
+        rss_bytes: linux_current_rss_bytes(),
+        peak_rss_bytes: linux_peak_rss_bytes(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkloadIdentity {
     pub schema: String,
@@ -221,8 +234,14 @@ pub struct StructuredCandidateMeasurements {
     pub tracked_state_resident_bytes: u64,
     pub worker_scratch_capacity_bytes: u64,
     pub peak_tracked_active_bytes: u64,
+    pub page_span: usize,
+    pub tile_span: usize,
+    pub sparse_max_occupancy: usize,
+    pub bitmap_max_occupancy: usize,
     pub scratch_domains: usize,
     pub owner_count: u32,
+    pub max_cached_states: usize,
+    pub max_in_flight_generations: usize,
     pub cached_state_count: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
@@ -405,6 +424,13 @@ pub fn source_revision_url() -> String {
 }
 
 pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, HarnessError> {
+    run_experiment_with_baseline(spec, capture_process_memory_baseline())
+}
+
+pub fn run_experiment_with_baseline(
+    spec: &ExperimentSpec,
+    baseline: ProcessMemoryBaseline,
+) -> Result<MemoryWallReceipt, HarnessError> {
     let system = spec.system()?;
     let operations = workload_operations(system, spec.rounds)?;
     let workload = workload_identity(system, spec.rounds, &operations);
@@ -415,8 +441,8 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
     let revision_url = source_revision_url();
 
     let estimated_logical_bytes = estimate_logical_bytes(spec.representation, system);
-    let rss_before_bytes = linux_current_rss_bytes();
-    let peak_before_bytes = linux_peak_rss_bytes();
+    let rss_before_bytes = baseline.rss_bytes;
+    let peak_before_bytes = baseline.peak_rss_bytes;
 
     if operation_support == OperationSupportClass::Unsupported {
         return finalize_receipt(ReceiptBody {
@@ -661,6 +687,8 @@ fn run_dense(
                 construction_ns,
                 Some(execution_ns),
                 materialized_logical_bytes,
+                materialized_logical_bytes,
+                1,
             ),
             RunOutcome::ExecutionFailed {
                 reason: error.to_string(),
@@ -775,6 +803,8 @@ fn run_stabilizer(
                 construction_ns,
                 Some(execution_ns),
                 materialized_logical_bytes,
+                materialized_logical_bytes,
+                1,
             ),
             classify_stabilizer_error(error),
         );
@@ -948,6 +978,7 @@ fn run_fly_virtualized(
     let mut executor = match VirtualExecutor::new(virtualization) {
         Ok(executor) => executor,
         Err(error) => {
+            let storage = state.storage_snapshot();
             return failed_receipt(
                 spec,
                 workload,
@@ -963,6 +994,8 @@ fn run_fly_virtualized(
                     duration_ns(construction_start.elapsed()),
                     None,
                     u64::try_from(state.logical_state_bytes()).ok(),
+                    u64::try_from(storage.facts().materialized_payload_bytes).ok(),
+                    u64::try_from(state.materialized_page_count()).unwrap_or(u64::MAX),
                 ),
                 classify_virtualization_error(error),
             );
@@ -973,6 +1006,7 @@ fn run_fly_virtualized(
     let execution_start = Instant::now();
     if let Err(error) = executor.apply_operations(&mut state, &operations) {
         let execution_ns = duration_ns(execution_start.elapsed());
+        let storage = state.storage_snapshot();
         return failed_receipt(
             spec,
             workload,
@@ -988,6 +1022,8 @@ fn run_fly_virtualized(
                 construction_ns,
                 Some(execution_ns),
                 u64::try_from(state.logical_state_bytes()).ok(),
+                u64::try_from(storage.facts().materialized_payload_bytes).ok(),
+                u64::try_from(state.materialized_page_count()).unwrap_or(u64::MAX),
             ),
             classify_virtualization_error(error),
         );
@@ -1035,8 +1071,14 @@ fn run_fly_virtualized(
         tracked_state_resident_bytes,
         worker_scratch_capacity_bytes,
         peak_tracked_active_bytes,
+        page_span: spec.fly.page_span,
+        tile_span: spec.fly.tile_span,
+        sparse_max_occupancy: spec.fly.sparse_max_occupancy,
+        bitmap_max_occupancy: spec.fly.bitmap_max_occupancy,
         scratch_domains: spec.fly.scratch_domains,
         owner_count: spec.fly.owner_count,
+        max_cached_states: spec.fly.max_cached_states,
+        max_in_flight_generations: spec.fly.max_in_flight_generations,
         cached_state_count: u64::try_from(executor.cached_state_count()).unwrap_or(u64::MAX),
         cache_hits: metrics.cache_hits,
         cache_misses: metrics.cache_misses,
@@ -1200,11 +1242,13 @@ impl FailureEvidence {
         construction_ns: u64,
         execution_ns: Option<u64>,
         logical_bytes: Option<u64>,
+        materialized_payload_bytes: Option<u64>,
+        materialization_count: u64,
     ) -> Self {
         Self {
             logical_bytes,
-            materialized_payload_bytes: logical_bytes,
-            materialization_count: 1,
+            materialized_payload_bytes,
+            materialization_count,
             construction_ns,
             execution_ns,
         }
@@ -1837,7 +1881,7 @@ mod tests {
             Some(128),
             linux_current_rss_bytes(),
             linux_peak_rss_bytes(),
-            FailureEvidence::materialized(11, Some(22), Some(128)),
+            FailureEvidence::materialized(11, Some(22), Some(128), Some(128), 1),
             RunOutcome::AllocationFailed {
                 reason: "synthetic post-construction failure".into(),
             },
