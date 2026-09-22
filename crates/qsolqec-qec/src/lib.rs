@@ -869,7 +869,9 @@ where
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecoderComparison {
     pub reference_decoder_id: String,
+    pub reference_decoder_version: String,
     pub candidate_decoder_id: String,
+    pub candidate_decoder_version: String,
     pub cases: u128,
     pub matched: u128,
     pub mismatched: u128,
@@ -1077,7 +1079,9 @@ pub fn compare_decoders_on_correctable_errors(
     hasher.update(COMPARISON_SCHEMA);
     hash_code(&mut hasher, code);
     hash_bytes(&mut hasher, reference_descriptor.id.as_bytes());
+    hash_bytes(&mut hasher, reference_descriptor.version.as_bytes());
     hash_bytes(&mut hasher, candidate_descriptor.id.as_bytes());
+    hash_bytes(&mut hasher, candidate_descriptor.version.as_bytes());
     hasher.update(&cases.to_be_bytes());
     hasher.update(&matched.to_be_bytes());
     hasher.update(&mismatched.to_be_bytes());
@@ -1093,7 +1097,9 @@ pub fn compare_decoders_on_correctable_errors(
 
     Ok(DecoderComparison {
         reference_decoder_id: reference_descriptor.id,
+        reference_decoder_version: reference_descriptor.version,
         candidate_decoder_id: candidate_descriptor.id,
+        candidate_decoder_version: candidate_descriptor.version,
         cases,
         matched,
         mismatched,
@@ -1696,6 +1702,78 @@ mod tests {
         assert_eq!(report.candidate_failures, 51);
         assert!(report.first_mismatch_syndrome_digest.is_some());
         assert_eq!(report.candidate_decoder_id, "delegating-candidate");
+    }
+
+    #[derive(Debug, Clone)]
+    struct VersionedZeroCandidate {
+        code: RepetitionCodeSpec,
+        id: &'static str,
+        version: &'static str,
+    }
+
+    impl Decoder for VersionedZeroCandidate {
+        fn descriptor(&self) -> ModuleDescriptor {
+            ModuleDescriptor {
+                id: self.id.into(),
+                version: self.version.into(),
+                capabilities: vec![Capability::Decoder],
+                consumes: vec![DataKind::Syndrome],
+                produces: vec![DataKind::Correction],
+                experimental: true,
+                maturity: Maturity::E2DeterministicFixture,
+            }
+        }
+
+        fn code(&self) -> RepetitionCodeSpec {
+            self.code
+        }
+
+        fn decode(&self, syndrome: &Syndrome) -> Result<Correction, DecoderError> {
+            Correction::for_decoder(
+                self.code,
+                vec![0; self.code.length()],
+                syndrome,
+                &self.descriptor(),
+            )
+        }
+    }
+
+    #[test]
+    fn comparison_identity_binds_decoder_versions() {
+        let code = RepetitionCodeSpec::new(2, 3).unwrap();
+        let reference_v1 = VersionedZeroCandidate {
+            code,
+            id: "reference",
+            version: "v1",
+        };
+        let candidate_v1 = VersionedZeroCandidate {
+            code,
+            id: "candidate",
+            version: "v1",
+        };
+        let reference_v2 = VersionedZeroCandidate {
+            code,
+            id: "reference",
+            version: "v2",
+        };
+        let candidate_v2 = VersionedZeroCandidate {
+            code,
+            id: "candidate",
+            version: "v2",
+        };
+
+        let v1 = compare_decoders_on_correctable_errors(&reference_v1, &candidate_v1, 4).unwrap();
+        let v2 = compare_decoders_on_correctable_errors(&reference_v2, &candidate_v2, 4).unwrap();
+
+        assert_eq!(v1.reference_decoder_id, "reference");
+        assert_eq!(v1.reference_decoder_version, "v1");
+        assert_eq!(v1.candidate_decoder_id, "candidate");
+        assert_eq!(v1.candidate_decoder_version, "v1");
+        assert_eq!(v2.reference_decoder_version, "v2");
+        assert_eq!(v2.candidate_decoder_version, "v2");
+        assert_eq!(v1.cases, v2.cases);
+        assert_eq!(v1.matched, v2.matched);
+        assert_ne!(v1.digest, v2.digest);
     }
 
     #[test]
