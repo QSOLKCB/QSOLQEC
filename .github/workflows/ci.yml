@@ -33,6 +33,12 @@ jobs:
       - name: Check
         run: cargo check --workspace --all-targets
 
+      - name: Capture generated lockfile
+        run: |
+          echo "BEGIN_QSOLQEC_CARGO_LOCK"
+          cat Cargo.lock
+          echo "END_QSOLQEC_CARGO_LOCK"
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
