@@ -281,7 +281,7 @@ See `docs/STRUCTURED_STORAGE_CONTRACT.md`.
 
 ## R7 - Fly-Phi664 structured memory prototype
 
-**Implemented in the current R7 follow-on (pending merge)**
+**Implemented in PR #9 (pending merge)**
 
 R7 introduces the first flagship structured-memory candidate for the amplitude-memory problem.
 
