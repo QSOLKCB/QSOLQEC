@@ -101,7 +101,10 @@ The file format is one unsigned `bodyId` per line. Blank lines and lines
 beginning with `#` are ignored.
 
 The host pathname is not scientific identity. The adapter canonicalizes the
-body-ID set through the R7 codec, and receipts bind:
+body-ID set through the R7 codec. Experiment identity hashes the retained
+canonical `body_ids_digest` rather than the raw body-ID sequence, so the
+experiment hash can be independently recomputed from the retained receipt
+without recovering the original input list. Receipts bind:
 
 - macro-node count;
 - canonical body-ID digest;
@@ -110,6 +113,11 @@ body-ID set through the R7 codec, and receipts bind:
 - exact logical namespace address count.
 
 Duplicate body IDs still fail closed under the R7 contract.
+
+The provenance label is also validated. `builtin-r7-fixture` is accepted only
+when the canonical membership exactly matches the built-in R7 fixture.
+Direct-library callers that replace `body_ids` without changing the source
+label fail closed instead of emitting false provenance.
 
 For a sweep, an external body-ID file is read exactly once by the parent
 process before any child point is launched. The parsed membership is
@@ -194,6 +202,7 @@ The Fly receipt records:
 - configured scratch and owner domains;
 - configured cache-state and in-flight-generation limits;
 - final cache-state count;
+- peak retained cache-state count across committed plus transaction-staged generations;
 - cache hits and misses;
 - invariant reuse count;
 - reused and recomputed generation counts;
@@ -251,6 +260,13 @@ reused_generations = cache_hits + invariant_reuses
 ```
 
 The receipt also preserves those components separately.
+
+Committed cache entries and transaction-staged candidate generations share the
+same `max_cached_states` budget throughout batched execution. The executor
+does not retain an unbounded pending generation per operation while waiting for
+the batch to commit. The receipt exposes `peak_retained_cache_states` so the
+runtime bound can be checked from evidence rather than inferred from final
+cache size alone.
 
 This is operation-generation reuse evidence, not a claim that every reused
 byte or tile avoided all CPU work.
