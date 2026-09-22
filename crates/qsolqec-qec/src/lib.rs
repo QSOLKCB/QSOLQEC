@@ -983,7 +983,7 @@ pub fn noise_module_descriptor() -> ModuleDescriptor {
         id: "replayable-weyl-noise".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         capabilities: vec![Capability::NoiseModel],
-        consumes: vec![DataKind::ExperimentSpec],
+        consumes: vec![DataKind::SystemSpec],
         produces: vec![DataKind::ErrorPattern, DataKind::OperationStream],
         experimental: true,
         maturity: Maturity::E2DeterministicFixture,
@@ -1514,6 +1514,7 @@ mod tests {
         let noise = noise_module_descriptor();
         noise.validate().unwrap();
         assert_eq!(noise.capabilities, vec![Capability::NoiseModel]);
+        assert_eq!(noise.consumes, vec![DataKind::SystemSpec]);
         assert!(noise.can_produce(DataKind::ErrorPattern));
 
         let exact = exact_decoder_module_descriptor();
