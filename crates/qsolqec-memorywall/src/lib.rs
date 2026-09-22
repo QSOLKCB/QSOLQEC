@@ -1693,10 +1693,7 @@ mod tests {
         assert_eq!(candidate.logical_namespace_addresses, 2 * 664);
         assert!(candidate.materialized_address_count > 0);
         assert!(candidate.materialized_page_count > 0);
-        assert_eq!(
-            candidate.recomputed_generations,
-            candidate.cache_misses
-        );
+        assert_eq!(candidate.recomputed_generations, candidate.cache_misses);
         assert_eq!(
             candidate.reused_generations,
             candidate.cache_hits + candidate.invariant_reuses
