@@ -166,7 +166,10 @@ fn child_failure_record(
         rounds,
         exit_code: output.status.code(),
         signal: exit_signal(&output.status),
-        stderr: String::from_utf8_lossy(&output.stderr).chars().take(4096).collect(),
+        stderr: String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .take(4096)
+            .collect(),
     }
 }
 
@@ -267,8 +270,7 @@ mod tests {
             stderr: b"killed".to_vec(),
         };
 
-        let failure =
-            child_failure_record(RepresentationKind::Dense, 2, 24, 8, &output);
+        let failure = child_failure_record(RepresentationKind::Dense, 2, 24, 8, &output);
 
         assert_eq!(failure.representation, RepresentationKind::Dense);
         assert_eq!(failure.dimension, 2);
