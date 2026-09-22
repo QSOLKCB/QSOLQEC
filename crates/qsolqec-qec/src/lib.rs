@@ -10,9 +10,7 @@ use std::collections::BTreeMap;
 
 use qsolqec_core::SystemSpec;
 use qsolqec_glassbox::SemanticHasher;
-use qsolqec_module_api::{
-    Capability, DataKind, Maturity, ModuleDescriptor, ResearchModule,
-};
+use qsolqec_module_api::{Capability, DataKind, Maturity, ModuleDescriptor, ResearchModule};
 use qsolqec_ops::Operation;
 
 const NOISE_SPEC_SCHEMA: &[u8] = b"qsolqec.weyl-noise-spec.v1";
@@ -92,10 +90,7 @@ pub struct WeylNoiseSpec {
 
 impl WeylNoiseSpec {
     pub fn new(seed: u64, x_error_ppm: u32, z_error_ppm: u32) -> Result<Self, QecError> {
-        for (field, value) in [
-            ("x_error_ppm", x_error_ppm),
-            ("z_error_ppm", z_error_ppm),
-        ] {
+        for (field, value) in [("x_error_ppm", x_error_ppm), ("z_error_ppm", z_error_ppm)] {
             if value > PPM_SCALE {
                 return Err(QecError::NoiseRateOutOfRange {
                     field,
@@ -264,15 +259,13 @@ impl ReplayableWeylNoise {
             let z_decision = rng.next_u64();
             let z_magnitude = rng.next_u64();
 
-            let x_shift = if (x_decision % u64::from(PPM_SCALE))
-                < u64::from(self.spec.x_error_ppm)
+            let x_shift = if (x_decision % u64::from(PPM_SCALE)) < u64::from(self.spec.x_error_ppm)
             {
                 1 + (x_magnitude as usize % nonzero)
             } else {
                 0
             };
-            let z_power = if (z_decision % u64::from(PPM_SCALE))
-                < u64::from(self.spec.z_error_ppm)
+            let z_power = if (z_decision % u64::from(PPM_SCALE)) < u64::from(self.spec.z_error_ppm)
             {
                 1 + (z_magnitude as usize % nonzero)
             } else {
@@ -580,8 +573,7 @@ impl Correction {
             .copied()
             .zip(self.x_shifts.iter().copied())
             .all(|(error, correction)| {
-                error < self.code.dimension
-                    && add_mod(error, correction, self.code.dimension) == 0
+                error < self.code.dimension && add_mod(error, correction, self.code.dimension) == 0
             }))
     }
 }
@@ -623,7 +615,11 @@ impl Decoder for ExactRepetitionXDecoder {
             let mut error = Vec::with_capacity(self.code.length);
             error.push(first);
             for syndrome_value in &syndrome.values {
-                let next = sub_mod(*error.last().expect("error vector is nonempty"), *syndrome_value, d);
+                let next = sub_mod(
+                    *error.last().expect("error vector is nonempty"),
+                    *syndrome_value,
+                    d,
+                );
                 error.push(next);
             }
             let weight = error.iter().filter(|value| **value != 0).count();
@@ -637,7 +633,9 @@ impl Decoder for ExactRepetitionXDecoder {
                     best = Some((weight, error));
                     tied = false;
                 }
-                Some((best_weight, best_error)) if weight == *best_weight && error != *best_error => {
+                Some((best_weight, best_error))
+                    if weight == *best_weight && error != *best_error =>
+                {
                     tied = true;
                 }
                 _ => {}
@@ -701,23 +699,30 @@ impl LookupRepetitionXDecoder {
 
         let mut table = BTreeMap::new();
         let mut error = vec![0usize; code.length];
-        enumerate_correctable_errors(code, 0, code.correctable_weight(), &mut error, &mut |error| {
-            let syndrome = Syndrome::from_x_error_shifts(code, error).map_err(DecoderError::Data)?;
-            let correction = error
-                .iter()
-                .copied()
-                .map(|shift| neg_mod(shift, code.dimension))
-                .collect::<Vec<_>>();
+        enumerate_correctable_errors(
+            code,
+            0,
+            code.correctable_weight(),
+            &mut error,
+            &mut |error| {
+                let syndrome =
+                    Syndrome::from_x_error_shifts(code, error).map_err(DecoderError::Data)?;
+                let correction = error
+                    .iter()
+                    .copied()
+                    .map(|shift| neg_mod(shift, code.dimension))
+                    .collect::<Vec<_>>();
 
-            if let Some(existing) = table.insert(syndrome.values.clone(), correction.clone()) {
-                if existing != correction {
-                    return Err(DecoderError::LookupCollision {
-                        syndrome_digest: syndrome.digest,
-                    });
+                if let Some(existing) = table.insert(syndrome.values.clone(), correction.clone()) {
+                    if existing != correction {
+                        return Err(DecoderError::LookupCollision {
+                            syndrome_digest: syndrome.digest,
+                        });
+                    }
                 }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
 
         Ok(Self { code, table })
     }
@@ -738,13 +743,11 @@ impl Decoder for LookupRepetitionXDecoder {
 
     fn decode(&self, syndrome: &Syndrome) -> Result<Correction, DecoderError> {
         validate_syndrome_code(self.code, syndrome)?;
-        let correction = self
-            .table
-            .get(&syndrome.values)
-            .cloned()
-            .ok_or_else(|| DecoderError::MissingLookupEntry {
+        let correction = self.table.get(&syndrome.values).cloned().ok_or_else(|| {
+            DecoderError::MissingLookupEntry {
                 syndrome_digest: syndrome.digest.clone(),
-            })?;
+            }
+        })?;
         Correction::new(
             self.code,
             correction,
@@ -834,13 +837,7 @@ where
     if remaining_weight > 0 {
         for shift in 1..code.dimension {
             error[index] = shift;
-            enumerate_correctable_errors(
-                code,
-                index + 1,
-                remaining_weight - 1,
-                error,
-                callback,
-            )?;
+            enumerate_correctable_errors(code, index + 1, remaining_weight - 1, error, callback)?;
         }
     }
     error[index] = 0;
@@ -891,46 +888,53 @@ pub fn compare_decoders_on_correctable_errors(
     let mut first_mismatch_syndrome_digest = None;
     let mut error = vec![0usize; code.length];
 
-    enumerate_correctable_errors(code, 0, code.correctable_weight(), &mut error, &mut |error| {
-        cases = cases.saturating_add(1);
-        let syndrome = Syndrome::from_x_error_shifts(code, error).map_err(DecoderError::Data)?;
-        let reference_result = reference.decode(&syndrome);
-        let candidate_result = candidate.decode(&syndrome);
+    enumerate_correctable_errors(
+        code,
+        0,
+        code.correctable_weight(),
+        &mut error,
+        &mut |error| {
+            cases = cases.saturating_add(1);
+            let syndrome =
+                Syndrome::from_x_error_shifts(code, error).map_err(DecoderError::Data)?;
+            let reference_result = reference.decode(&syndrome);
+            let candidate_result = candidate.decode(&syndrome);
 
-        match (reference_result, candidate_result) {
-            (Ok(reference_correction), Ok(candidate_correction)) => {
-                if reference_correction.x_shifts == candidate_correction.x_shifts {
-                    matched = matched.saturating_add(1);
-                } else {
-                    mismatched = mismatched.saturating_add(1);
+            match (reference_result, candidate_result) {
+                (Ok(reference_correction), Ok(candidate_correction)) => {
+                    if reference_correction.x_shifts == candidate_correction.x_shifts {
+                        matched = matched.saturating_add(1);
+                    } else {
+                        mismatched = mismatched.saturating_add(1);
+                        if first_mismatch_syndrome_digest.is_none() {
+                            first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                        }
+                    }
+                }
+                (Err(_), Ok(_)) => {
+                    reference_failures = reference_failures.saturating_add(1);
+                    if first_mismatch_syndrome_digest.is_none() {
+                        first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                    }
+                }
+                (Ok(_), Err(_)) => {
+                    candidate_failures = candidate_failures.saturating_add(1);
+                    if first_mismatch_syndrome_digest.is_none() {
+                        first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
+                    }
+                }
+                (Err(_), Err(_)) => {
+                    reference_failures = reference_failures.saturating_add(1);
+                    candidate_failures = candidate_failures.saturating_add(1);
                     if first_mismatch_syndrome_digest.is_none() {
                         first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
                     }
                 }
             }
-            (Err(_), Ok(_)) => {
-                reference_failures = reference_failures.saturating_add(1);
-                if first_mismatch_syndrome_digest.is_none() {
-                    first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
-                }
-            }
-            (Ok(_), Err(_)) => {
-                candidate_failures = candidate_failures.saturating_add(1);
-                if first_mismatch_syndrome_digest.is_none() {
-                    first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
-                }
-            }
-            (Err(_), Err(_)) => {
-                reference_failures = reference_failures.saturating_add(1);
-                candidate_failures = candidate_failures.saturating_add(1);
-                if first_mismatch_syndrome_digest.is_none() {
-                    first_mismatch_syndrome_digest = Some(syndrome.digest.clone());
-                }
-            }
-        }
 
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
 
     let mut hasher = SemanticHasher::new();
     hasher.update(COMPARISON_SCHEMA);
@@ -1161,7 +1165,10 @@ impl fmt::Display for QecError {
                 "{field}={value} at target {target} is outside 0..{dimension}"
             ),
             Self::TrivialErrorEvent { target } => {
-                write!(f, "error event at target {target} has zero X and Z exponents")
+                write!(
+                    f,
+                    "error event at target {target} has zero X and Z exponents"
+                )
             }
             Self::DuplicateErrorTarget { target } => {
                 write!(f, "error pattern contains duplicate target {target}")
