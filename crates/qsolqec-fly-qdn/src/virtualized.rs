@@ -2075,6 +2075,29 @@ mod tests {
     }
 
     #[test]
+    fn transactional_cache_staging_respects_max_cached_states() {
+        let spec = SystemSpec::new(2, 4).unwrap();
+        let bounded = VirtualizationConfig::new(8, 8, 1, 4, 2, 2, 1, 2).unwrap();
+        let mut state = VirtualFlyQdnState::zero(codec(), spec, bounded).unwrap();
+        let mut gate_a = FlyQdnState::zero(codec(), 64, spec).unwrap();
+        let operations = (0..10)
+            .map(|round| Operation::WeylX {
+                target: round % spec.subsystems(),
+                shift: 1,
+            })
+            .collect::<Vec<_>>();
+
+        gate_a.apply_operations(&operations).unwrap();
+        let mut executor = VirtualExecutor::new(bounded).unwrap();
+        executor.apply_operations(&mut state, &operations).unwrap();
+
+        assert!(state.compare_gate_a(&gate_a).unwrap().exact_bits);
+        assert!(executor.cached_state_count() <= 1);
+        assert!(executor.metrics().peak_retained_cache_states <= 1);
+        assert_eq!(executor.metrics().cache_misses, 10);
+    }
+
+    #[test]
     fn named_identity_invariant_avoids_work() {
         let spec = SystemSpec::new(3, 2).unwrap();
         let mut state = VirtualFlyQdnState::zero(codec(), spec, config()).unwrap();
