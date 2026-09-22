@@ -353,9 +353,9 @@ impl AdaptivePage {
             }
             AdaptivePageData::Dense { bits, payloads } => {
                 let mut output = Vec::with_capacity(self.occupancy);
-                for offset in 0..self.span {
+                for (offset, payload) in payloads.iter().copied().enumerate().take(self.span) {
                     if get_bit(bits, offset) {
-                        output.push((offset, payloads[offset]));
+                        output.push((offset, payload));
                     }
                 }
                 output
@@ -1164,12 +1164,14 @@ impl VirtualExecutor {
         let stride = subsystem_stride(state.spec, target)?;
         let reduced = power % dimension;
         let mut builder = PageBuilder::default();
-        let mut dispatch = 0usize;
 
         // Exact signed-zero semantics make a blanket sparse skip unsound here.
         // We therefore scan the whole logical Q(d,n) state, but only through
         // bounded, reusable worker-local SoA scratch.
-        for start in (0..state.state_len).step_by(self.config.tile_span) {
+        for (dispatch, start) in (0..state.state_len)
+            .step_by(self.config.tile_span)
+            .enumerate()
+        {
             let end = (start + self.config.tile_span).min(state.state_len);
             let scratch = self.scratch.worker_mut(dispatch);
             scratch.clear();
@@ -1194,7 +1196,6 @@ impl VirtualExecutor {
                     )?;
                 }
             }
-            dispatch += 1;
             self.metrics.worker_dispatches = self.metrics.worker_dispatches.saturating_add(1);
             self.metrics.addresses_scanned = self
                 .metrics
