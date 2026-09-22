@@ -1803,15 +1803,30 @@ mod tests {
     }
 
     #[test]
-    fn explicit_process_memory_baseline_is_preserved_in_receipt() {
+    fn explicit_host_and_memory_baseline_are_preserved_in_receipt() {
         let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
         let baseline = ProcessMemoryBaseline {
             rss_bytes: Some(1234),
             peak_rss_bytes: Some(5678),
         };
+        let host = HostInfo {
+            schema: HOST_SCHEMA.into(),
+            os: "synthetic-os".into(),
+            arch: "synthetic-arch".into(),
+            hostname: Some("synthetic-host".into()),
+            cpu_model: Some("synthetic-cpu".into()),
+            logical_cpu_count: Some(7),
+            total_memory_bytes: Some(9999),
+            gpus: vec![GpuInfo {
+                name: "synthetic-gpu".into(),
+                memory_total_bytes: Some(123456),
+                driver_version: Some("synthetic-driver".into()),
+            }],
+        };
 
-        let receipt = run_experiment_with_context(&spec, probe_host(), baseline).unwrap();
+        let receipt = run_experiment_with_context(&spec, host.clone(), baseline).unwrap();
 
+        assert_eq!(receipt.body.host, host);
         assert_eq!(receipt.body.memory.rss_before_bytes, Some(1234));
         assert_eq!(
             receipt.body.memory.peak_process_rss_before_bytes,
