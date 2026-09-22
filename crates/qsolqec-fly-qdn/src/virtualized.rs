@@ -1517,14 +1517,7 @@ impl SharedTileMaterializer {
                 }
                 (Arc::clone(existing), false)
             } else {
-                let current = self.in_flight.load(Ordering::Acquire);
-                if current >= self.state.config.max_in_flight_generations {
-                    return Err(SharedMaterializationError::AdmissionDenied {
-                        in_flight: current,
-                        max: self.state.config.max_in_flight_generations,
-                    });
-                }
-                self.in_flight.fetch_add(1, Ordering::AcqRel);
+                self.try_admit_generation()?;
                 let cell = Arc::new(OnceLock::new());
                 cells.insert(tile_index, Arc::clone(&cell));
                 (cell, true)
@@ -1563,6 +1556,19 @@ impl SharedTileMaterializer {
             }
         }
         result
+    }
+
+    fn try_admit_generation(&self) -> Result<(), SharedMaterializationError> {
+        let max = self.state.config.max_in_flight_generations;
+        self.in_flight
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                (current < max).then_some(current + 1)
+            })
+            .map(|_| ())
+            .map_err(|current| SharedMaterializationError::AdmissionDenied {
+                in_flight: current,
+                max,
+            })
     }
 
     fn check_request(
@@ -2096,6 +2102,44 @@ mod tests {
             ))
         ));
         assert_eq!(virtualized.state_digest(), before);
+    }
+
+    #[test]
+    fn admission_is_atomic_across_owner_domains() {
+        let spec = SystemSpec::new(2, 5).unwrap();
+        let bounded = VirtualizationConfig::new(8, 8, 1, 4, 2, 2, 8, 1).unwrap();
+        let state = Arc::new(VirtualFlyQdnState::zero(codec(), spec, bounded).unwrap());
+        let materializer = Arc::new(SharedTileMaterializer::new(state));
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+
+        let handles = [0usize, 1usize].map(|owner| {
+            let materializer = Arc::clone(&materializer);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let _domain_guard = materializer.domains[owner].lock().unwrap();
+                barrier.wait();
+                materializer.try_admit_generation()
+            })
+        });
+
+        let results = handles.map(|handle| handle.join().unwrap());
+        let admitted = results.iter().filter(|result| result.is_ok()).count();
+        let denied = results
+            .iter()
+            .filter(|result| {
+                matches!(
+                    result,
+                    Err(SharedMaterializationError::AdmissionDenied {
+                        in_flight: 1,
+                        max: 1
+                    })
+                )
+            })
+            .count();
+
+        assert_eq!(admitted, 1);
+        assert_eq!(denied, 1);
+        assert_eq!(materializer.in_flight.load(Ordering::Acquire), 1);
     }
 
     #[test]
