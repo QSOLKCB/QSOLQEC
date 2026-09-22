@@ -537,6 +537,20 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             rss_before_bytes,
             peak_before_bytes,
         ),
+        RepresentationKind::FlyPhi664Virtualized => run_fly_virtualized(
+            spec,
+            system,
+            operations,
+            workload,
+            operation_support,
+            experiment_id,
+            host,
+            revision,
+            revision_url,
+            estimated_logical_bytes,
+            rss_before_bytes,
+            peak_before_bytes,
+        ),
     }
 }
 
@@ -559,6 +573,10 @@ fn workload_support_class(
                     }
                     Err(error) => return Err(HarnessError::Workload(error.to_string())),
                 }
+            }
+            RepresentationKind::FlyPhi664Virtualized => {
+                VirtualFlyQdnState::support_for_spec(system, operation)
+                    .map_err(|error| HarnessError::Workload(error.to_string()))?
             }
         };
 
@@ -1058,6 +1076,13 @@ pub fn workload_identity(
     }
 }
 
+fn compute_backend(representation: RepresentationKind) -> &'static str {
+    match representation {
+        RepresentationKind::Dense | RepresentationKind::PrimeStabilizer => "scalar-cpu",
+        RepresentationKind::FlyPhi664Virtualized => "virtualized-serial-cpu",
+    }
+}
+
 fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
     let mut hasher = SemanticHasher::new();
     hash_bytes(&mut hasher, b"qsolqec.memorywall.experiment.v1");
@@ -1074,7 +1099,7 @@ fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
         None => hasher.update(&[0]),
     }
     hasher.update(&spec.oracle_logical_limit_bytes.to_be_bytes());
-    hash_bytes(&mut hasher, b"scalar-cpu");
+    hash_bytes(&mut hasher, compute_backend(spec.representation).as_bytes());
     format!("sha256:{}", hasher.finalize_hex())
 }
 
@@ -1095,6 +1120,7 @@ pub fn estimate_logical_bytes(
             let bytes = scalars.checked_mul(std::mem::size_of::<usize>() as u128)?;
             u64::try_from(bytes).ok()
         }
+        RepresentationKind::FlyPhi664Virtualized => estimate_dense_bytes(system),
     }
 }
 
