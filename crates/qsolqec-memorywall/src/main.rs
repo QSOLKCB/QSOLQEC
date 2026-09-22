@@ -592,12 +592,29 @@ mod tests {
             parse_body_id_file(&frozen_path).unwrap(),
             vec![12781, 556329]
         );
+        assert!(!frozen.args.iter().any(|argument| argument == "--fly-body-ids"));
         assert!(frozen
             .args
             .windows(2)
             .any(|pair| pair[0] == "--fly-page-span" && pair[1] == "64"));
 
         fs::remove_file(original).unwrap();
+    }
+
+    #[test]
+    fn frozen_snapshot_environment_preserves_non_utf8_path_bytes() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let raw = b"/tmp/qsolqec-\xff-bodyids.txt".to_vec();
+        let path = PathBuf::from(std::ffi::OsString::from_vec(raw.clone()));
+        let mut command = Command::new("true");
+        command.env(FROZEN_FLY_BODY_IDS_ENV, path.as_os_str());
+
+        let (_, value) = command
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new(FROZEN_FLY_BODY_IDS_ENV))
+            .unwrap();
+        assert_eq!(value.unwrap().as_bytes(), raw.as_slice());
     }
 
     #[test]
