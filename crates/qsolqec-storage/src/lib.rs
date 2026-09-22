@@ -14,6 +14,7 @@ pub const STORAGE_OBSERVATION_SCHEMA: &str = "qsolqec.storage.observation.v1";
 pub struct StorageGeometryIdentity {
     kind: String,
     version: String,
+    logical_address_count: u128,
     digest: String,
 }
 
@@ -21,14 +22,20 @@ impl StorageGeometryIdentity {
     pub fn from_canonical_bytes(
         kind: impl Into<String>,
         version: impl Into<String>,
+        logical_address_count: u128,
         canonical_bytes: &[u8],
     ) -> Result<Self, StorageContractError> {
         let kind = nonempty(kind.into(), "geometry kind")?;
         let version = nonempty(version.into(), "geometry version")?;
-        let digest = identity_digest("geometry", &kind, &version, canonical_bytes);
+        if logical_address_count == 0 {
+            return Err(StorageContractError::EmptyAddressSpace);
+        }
+        let digest =
+            geometry_identity_digest(&kind, &version, logical_address_count, canonical_bytes);
         Ok(Self {
             kind,
             version,
+            logical_address_count,
             digest,
         })
     }
@@ -39,6 +46,10 @@ impl StorageGeometryIdentity {
 
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    pub const fn logical_address_count(&self) -> u128 {
+        self.logical_address_count
     }
 
     pub fn digest(&self) -> &str {
@@ -134,11 +145,8 @@ impl PackedAddress {
     pub fn bind(
         geometry: &StorageGeometryIdentity,
         index: u128,
-        logical_address_count: u128,
     ) -> Result<Self, StorageContractError> {
-        if logical_address_count == 0 {
-            return Err(StorageContractError::EmptyAddressSpace);
-        }
+        let logical_address_count = geometry.logical_address_count();
         if index >= logical_address_count {
             return Err(StorageContractError::AddressOutOfRange {
                 index,
@@ -179,7 +187,6 @@ pub trait LogicalAddressCodec {
     type Address: Clone + PartialEq + Eq;
 
     fn geometry_identity(&self) -> &StorageGeometryIdentity;
-    fn logical_address_count(&self) -> u128;
 
     fn pack(&self, address: &Self::Address) -> Result<PackedAddress, StorageContractError>;
 
@@ -194,6 +201,7 @@ pub fn pack_mixed_radix(
     extents: &[u128],
 ) -> Result<u128, StorageContractError> {
     validate_mixed_radix_shape(coordinates.len(), extents)?;
+    mixed_radix_len(extents)?;
     let mut index = 0u128;
 
     for (axis, (&coordinate, &extent)) in coordinates.iter().zip(extents).enumerate() {
@@ -275,9 +283,9 @@ impl MaterializationWindow {
         geometry: &StorageGeometryIdentity,
         start: PackedAddress,
         len: u128,
-        logical_address_count: u128,
     ) -> Result<Self, StorageContractError> {
         start.validate_geometry(geometry)?;
+        let logical_address_count = geometry.logical_address_count();
         if len == 0 {
             return Err(StorageContractError::EmptyMaterializationWindow);
         }
@@ -457,8 +465,12 @@ pub struct StorageSnapshot {
 
 impl StorageSnapshot {
     pub fn from_facts(facts: StorageSnapshotFacts) -> Result<Self, StorageContractError> {
-        if facts.logical_address_count == 0 {
-            return Err(StorageContractError::EmptyAddressSpace);
+        let geometry_logical_address_count = facts.geometry.logical_address_count();
+        if facts.logical_address_count != geometry_logical_address_count {
+            return Err(StorageContractError::LogicalAddressCountMismatch {
+                geometry: geometry_logical_address_count,
+                snapshot: facts.logical_address_count,
+            });
         }
         if facts.materialized_address_count > facts.logical_address_count {
             return Err(StorageContractError::MaterializedCountExceedsLogical {
@@ -539,6 +551,21 @@ fn storage_artifact_id(snapshot: &StorageSnapshot) -> String {
     canonical.finish()
 }
 
+fn geometry_identity_digest(
+    kind: &str,
+    version: &str,
+    logical_address_count: u128,
+    bytes: &[u8],
+) -> String {
+    let mut canonical = CanonicalHasher::new();
+    canonical.push_str("geometry");
+    canonical.push_str(kind);
+    canonical.push_str(version);
+    canonical.push_u128(logical_address_count);
+    canonical.push_bytes(bytes);
+    canonical.finish()
+}
+
 fn identity_digest(domain: &str, id: &str, version: &str, bytes: &[u8]) -> String {
     let mut canonical = CanonicalHasher::new();
     canonical.push_str(domain);
@@ -559,7 +586,11 @@ fn validate_digest(digest: &str, field: &'static str) -> Result<(), StorageContr
     let Some(hex) = digest.strip_prefix("sha256:") else {
         return Err(StorageContractError::InvalidDigest { field });
     };
-    if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return Err(StorageContractError::InvalidDigest { field });
     }
     Ok(())
@@ -635,6 +666,10 @@ pub enum StorageContractError {
     ZeroTileSpan,
     ZeroOwnerCount,
     ZeroPersistenceVersion,
+    LogicalAddressCountMismatch {
+        geometry: u128,
+        snapshot: u128,
+    },
     MaterializedCountExceedsLogical {
         materialized: u128,
         logical: u128,
@@ -647,7 +682,10 @@ impl fmt::Display for StorageContractError {
         match self {
             Self::EmptyIdentityField { field } => write!(f, "{field} must not be empty"),
             Self::InvalidDigest { field } => {
-                write!(f, "{field} must be a sha256: digest with 64 hex digits")
+                write!(
+                    f,
+                    "{field} must be a canonical lowercase sha256: digest with 64 hex digits"
+                )
             }
             Self::EmptyGeometry => f.write_str("storage geometry must contain at least one axis"),
             Self::GeometryRankMismatch {
@@ -696,6 +734,10 @@ impl fmt::Display for StorageContractError {
             Self::ZeroPersistenceVersion => {
                 f.write_str("persistence format version must be nonzero")
             }
+            Self::LogicalAddressCountMismatch { geometry, snapshot } => write!(
+                f,
+                "snapshot logical address count {snapshot} does not match geometry namespace {geometry}"
+            ),
             Self::MaterializedCountExceedsLogical {
                 materialized,
                 logical,
@@ -720,7 +762,18 @@ mod tests {
         StorageGeometryIdentity::from_canonical_bytes(
             "fixture-grid",
             version,
+            24,
             b"axes=2,3,4;axis0-most-significant",
+        )
+        .unwrap()
+    }
+
+    fn geometry_with_count(version: &str, logical_address_count: u128) -> StorageGeometryIdentity {
+        StorageGeometryIdentity::from_canonical_bytes(
+            "fixture-grid",
+            version,
+            logical_address_count,
+            b"axes=fixture;axis0-most-significant",
         )
         .unwrap()
     }
@@ -755,12 +808,15 @@ mod tests {
     }
 
     #[test]
-    fn identity_binds_kind_version_and_canonical_bytes() {
+    fn identity_binds_kind_version_namespace_and_canonical_bytes() {
         let v1 = geometry("1");
         let v1_again = geometry("1");
         let v2 = geometry("2");
+        let wider = geometry_with_count("1", 25);
         assert_eq!(v1, v1_again);
+        assert_eq!(v1.logical_address_count(), 24);
         assert_ne!(v1.digest(), v2.digest());
+        assert_ne!(v1.digest(), wider.digest());
     }
 
     #[test]
@@ -787,33 +843,44 @@ mod tests {
             mixed_radix_len(&[u128::MAX, 2]),
             Err(StorageContractError::AddressArithmeticOverflow)
         );
+        assert_eq!(
+            pack_mixed_radix(&[0, 0], &[u128::MAX, 2]),
+            Err(StorageContractError::AddressArithmeticOverflow)
+        );
+        assert_eq!(
+            unpack_mixed_radix(0, &[u128::MAX, 2]),
+            Err(StorageContractError::AddressArithmeticOverflow)
+        );
     }
 
     #[test]
-    fn packed_addresses_are_geometry_bound() {
-        let address = PackedAddress::bind(&geometry("1"), 7, 24).unwrap();
+    fn packed_addresses_are_geometry_and_namespace_bound() {
+        let address = PackedAddress::bind(&geometry("1"), 7).unwrap();
         assert!(address.validate_geometry(&geometry("1")).is_ok());
         assert_eq!(
             address.validate_geometry(&geometry("2")),
             Err(StorageContractError::GeometryMismatch)
         );
         assert_eq!(
-            PackedAddress::bind(&geometry("1"), 24, 24),
+            PackedAddress::bind(&geometry("1"), 24),
             Err(StorageContractError::AddressOutOfRange {
                 index: 24,
                 logical_address_count: 24,
             })
         );
+        let wider = geometry_with_count("1", 25);
+        assert_ne!(geometry("1").digest(), wider.digest());
+        assert!(PackedAddress::bind(&wider, 24).is_ok());
     }
 
     #[test]
     fn materialization_windows_are_bounded() {
         let geometry = geometry("1");
-        let start = PackedAddress::bind(&geometry, 20, 24).unwrap();
-        let window = MaterializationWindow::new(&geometry, start.clone(), 4, 24).unwrap();
+        let start = PackedAddress::bind(&geometry, 20).unwrap();
+        let window = MaterializationWindow::new(&geometry, start.clone(), 4).unwrap();
         assert_eq!(window.end_exclusive(), 24);
         assert_eq!(
-            MaterializationWindow::new(&geometry, start, 5, 24),
+            MaterializationWindow::new(&geometry, start, 5),
             Err(StorageContractError::MaterializationWindowOutOfRange {
                 start: 20,
                 len: 5,
@@ -824,10 +891,10 @@ mod tests {
 
     #[test]
     fn materialization_window_overflow_does_not_wrap() {
-        let geometry = geometry("1");
-        let start = PackedAddress::bind(&geometry, u128::MAX - 1, u128::MAX).unwrap();
+        let geometry = geometry_with_count("1", u128::MAX);
+        let start = PackedAddress::bind(&geometry, u128::MAX - 1).unwrap();
         assert_eq!(
-            MaterializationWindow::new(&geometry, start, 2, u128::MAX),
+            MaterializationWindow::new(&geometry, start, 2),
             Err(StorageContractError::AddressArithmeticOverflow)
         );
     }
@@ -836,7 +903,7 @@ mod tests {
     fn ownership_is_deterministic_from_tile_and_owner_count() {
         let geometry_v1 = geometry("1");
         let policy = TileOwnershipPolicy::new(&geometry_v1, 4, 3).unwrap();
-        let address = PackedAddress::bind(&geometry_v1, 17, 24).unwrap();
+        let address = PackedAddress::bind(&geometry_v1, 17).unwrap();
         assert_eq!(
             policy.owner_of(&address),
             Ok(TileOwnership {
@@ -844,7 +911,7 @@ mod tests {
                 owner: 1,
             })
         );
-        let wrong = PackedAddress::bind(&geometry("2"), 17, 24).unwrap();
+        let wrong = PackedAddress::bind(&geometry("2"), 17).unwrap();
         assert_eq!(
             policy.owner_of(&wrong),
             Err(StorageContractError::GeometryMismatch)
@@ -853,7 +920,7 @@ mod tests {
 
     #[test]
     fn payload_identity_is_separate_from_address_identity() {
-        let address = PackedAddress::bind(&geometry("1"), 3, 24).unwrap();
+        let address = PackedAddress::bind(&geometry("1"), 3).unwrap();
         let left = PayloadIdentity::from_payload_bytes("raw", "1", b"left").unwrap();
         let right = PayloadIdentity::from_payload_bytes("raw", "1", b"right").unwrap();
 
@@ -866,6 +933,56 @@ mod tests {
         assert!(StorageExactness::approximate("", "abs<=1e-6").is_err());
         assert!(StorageExactness::approximate("quantized", "").is_err());
         assert!(StorageExactness::approximate("quantized", "abs<=1e-6").is_ok());
+    }
+
+    #[test]
+    fn snapshot_rejects_namespace_count_that_disagrees_with_geometry() {
+        let result = StorageSnapshot::from_facts(StorageSnapshotFacts {
+            geometry: geometry("1"),
+            source: source(),
+            logical_address_count: 25,
+            materialized_address_count: 0,
+            materialized_payload_bytes: 0,
+            resident_working_set_bytes: 0,
+            backing: PhysicalBacking::Sparse,
+            exactness: StorageExactness::Exact,
+            persistence: PersistenceBoundary::new("fixture-store", 1).unwrap(),
+            storage_digest: content_digest(b"count-mismatch"),
+        });
+        assert_eq!(
+            result,
+            Err(StorageContractError::LogicalAddressCountMismatch {
+                geometry: 24,
+                snapshot: 25,
+            })
+        );
+    }
+
+    #[test]
+    fn snapshot_rejects_noncanonical_uppercase_digest() {
+        let canonical = content_digest(b"same-digest");
+        let uppercase = format!(
+            "sha256:{}",
+            canonical["sha256:".len()..].to_ascii_uppercase()
+        );
+        let result = StorageSnapshot::from_facts(StorageSnapshotFacts {
+            geometry: geometry("1"),
+            source: source(),
+            logical_address_count: 24,
+            materialized_address_count: 1,
+            materialized_payload_bytes: 8,
+            resident_working_set_bytes: 16,
+            backing: PhysicalBacking::Sparse,
+            exactness: StorageExactness::Exact,
+            persistence: PersistenceBoundary::new("fixture-store", 1).unwrap(),
+            storage_digest: uppercase,
+        });
+        assert_eq!(
+            result,
+            Err(StorageContractError::InvalidDigest {
+                field: "storage digest"
+            })
+        );
     }
 
     #[test]
