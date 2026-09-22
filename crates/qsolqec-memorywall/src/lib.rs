@@ -1303,6 +1303,21 @@ mod tests {
     }
 
     #[test]
+    fn successful_receipt_serializes_resource_limits() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
+        spec.max_logical_bytes = Some(64 * 1024 * 1024);
+        spec.oracle_logical_limit_bytes = 8 * 1024 * 1024;
+
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert_eq!(receipt.body.max_logical_bytes, spec.max_logical_bytes);
+        assert_eq!(
+            receipt.body.oracle_logical_limit_bytes,
+            spec.oracle_logical_limit_bytes
+        );
+    }
+
+    #[test]
     fn receipt_round_trips_json() {
         let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
         let receipt = run_experiment(&spec).unwrap();
