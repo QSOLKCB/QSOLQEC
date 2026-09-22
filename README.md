@@ -135,7 +135,7 @@ R6 adds a representation-neutral `qsolqec-storage` contract for large logical ad
 
 R7 adds `qsolqec-fly-phi664`, a concrete sparse substrate that binds an exact MaleCNS v1.0 `bodyId` set into source identity and gives every macro node three disjoint finite fibres: F27, N125, and R512. It round-trips structured addresses through a stable packed namespace, enforces bounded materialization, and emits the R6 storage snapshot without implementing `SystemSpec` or Glass Box `ObservableState`.
 
-R8A adds `qsolqec-fly-qdn`, the first explicit Q(d,n)-bound adapter over Fly-Phi664. It maps basis index directly onto canonical packed Phi664 addresses, stores exact Complex64 payload bits sparsely, reconstructs the complete amplitude vector for the Gate-A baseline, implements Glass Box `ObservableState`, and executes the exact Clifford-style operation subset without a Dense runtime fallback. Gate B remains the optimization phase.
+R8A adds `qsolqec-fly-qdn`, the first explicit Q(d,n)-bound adapter over Fly-Phi664. It maps basis index directly onto canonical packed Phi664 addresses, stores exact Complex64 payload bits sparsely, reconstructs the complete amplitude vector for the Gate-A baseline, implements Glass Box `ObservableState`, and executes the exact Clifford-style operation subset without a Dense runtime fallback.\n\nR8B adds the exact virtualized path inside `qsolqec-fly-qdn`: density-adaptive pages, sound sparse/permutation reduction, active-lane Fourier pruning, bounded reusable worker-local SoA scratch, invariant and signature-bound reuse, immutable shared tiles, duplicate in-flight coalescing, and static partitioned ownership. It preserves the Gate-A semantic digest and bit-level operation results. Approximation remains disabled and no portable performance claim is made before R9.
 
 See:
 
@@ -146,7 +146,7 @@ See:
 - [docs/MEMORY_WALL_RUNTIME.md](docs/MEMORY_WALL_RUNTIME.md)
 - [docs/STRUCTURED_STORAGE_CONTRACT.md](docs/STRUCTURED_STORAGE_CONTRACT.md)
 - [docs/FLY_PHI664.md](docs/FLY_PHI664.md)
-- [docs/FLY_PHI664_QDN.md](docs/FLY_PHI664_QDN.md)
+- [docs/FLY_PHI664_QDN.md](docs/FLY_PHI664_QDN.md)\n- [docs/FLY_PHI664_VIRTUALIZED.md](docs/FLY_PHI664_VIRTUALIZED.md)
 
 ## Historical inspiration
 
@@ -182,7 +182,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
 8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
-9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - Gate A implemented in the PR #10; Gate B next.
+9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - Gate A complete in PR #10; Gate B implemented in PR #11 (pending merge).
 10. **R9 - Amplitude-memory-wall challenge**.
 11. **R10 - Noise and decoder modules**.
 12. **R11 - Flagship native-ququart experiment**.
