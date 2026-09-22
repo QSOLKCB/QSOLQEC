@@ -125,7 +125,8 @@ crates/
 ├── qsolqec-memorywall/   R5 benchmark + memory-wall experiment runtime
 ├── qsolqec-storage/      R6 neutral structured logical-storage contract
 ├── qsolqec-fly-phi664/   R7 MaleCNS-bound Phi664 sparse storage prototype
-├── qsolqec-fly-qdn/      R8A exact Q(d,n)-bound Fly-Phi664 baseline
+├── qsolqec-fly-qdn/      R8A/R8B exact Q(d,n)-bound Fly-Phi664 paths
+├── qsolqec-qec/          R10 replayable noise, syndrome, and decoder modules
 └── qsolqec-cli/          minimal executable smoke path
 ```
 
@@ -136,6 +137,10 @@ R6 adds a representation-neutral `qsolqec-storage` contract for large logical ad
 R7 adds `qsolqec-fly-phi664`, a concrete sparse substrate that binds an exact MaleCNS v1.0 `bodyId` set into source identity and gives every macro node three disjoint finite fibres: F27, N125, and R512. It round-trips structured addresses through a stable packed namespace, enforces bounded materialization, and emits the R6 storage snapshot without implementing `SystemSpec` or Glass Box `ObservableState`.
 
 R8A adds `qsolqec-fly-qdn`, the first explicit Q(d,n)-bound adapter over Fly-Phi664. It maps basis index directly onto canonical packed Phi664 addresses, stores exact Complex64 payload bits sparsely, reconstructs the complete amplitude vector for the Gate-A baseline, implements Glass Box `ObservableState`, and executes the exact Clifford-style operation subset without a Dense runtime fallback.\n\nR8B adds the exact virtualized path inside `qsolqec-fly-qdn`: density-adaptive pages, sound sparse/permutation reduction, active-lane Fourier pruning, bounded reusable worker-local SoA scratch, invariant and signature-bound reuse, immutable shared tiles, duplicate in-flight coalescing, and static partitioned ownership. It preserves the Gate-A semantic digest and bit-level operation results. Approximation remains disabled and no portable performance claim is made before R9.
+
+R9 adds the amplitude-memory-wall challenge, placing Dense, PrimeStabilizer, and virtualized Fly-Phi664 under one fresh-process benchmark contract with explicit logical/materialized/RSS evidence and bounded Dense verification.
+
+R10 adds `qsolqec-qec`: deterministic replayable generalized Weyl noise, typed error patterns and syndromes, a representation-independent decoder contract, an exact prime-d repetition-X decoder, and a bounded lookup candidate exhaustively compared over the declared correctable corpus. Decoder runtime has no dependency on Dense, Stabilizer, Fly-Phi664, or the memory-wall harness.
 
 See:
 
@@ -148,6 +153,7 @@ See:
 - [docs/FLY_PHI664.md](docs/FLY_PHI664.md)
 - [docs/FLY_PHI664_QDN.md](docs/FLY_PHI664_QDN.md)\n- [docs/FLY_PHI664_VIRTUALIZED.md](docs/FLY_PHI664_VIRTUALIZED.md)
 - [docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md](docs/AMPLITUDE_MEMORY_WALL_CHALLENGE.md)
+- [docs/NOISE_DECODER_MODULES.md](docs/NOISE_DECODER_MODULES.md)
 
 ## Historical inspiration
 
@@ -184,8 +190,8 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
 8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - complete in PRs #10-#11.
-10. **R9 - Amplitude-memory-wall challenge** - implemented in PR #12 (pending merge).
-11. **R10 - Noise and decoder modules**.
+10. **R9 - Amplitude-memory-wall challenge** - complete in PR #12.
+11. **R10 - Noise and decoder modules** - implemented in PR #13 (pending merge).
 12. **R11 - Flagship native-ququart experiment**.
 13. **R12 - Sonification observer**.
 14. **R13 - Compute acceleration**.
@@ -197,6 +203,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R9: amplitude-memory-wall challenge (PR #12, pending merge).**
+**R10: replayable noise and decoder modules (PR #13, pending merge).**
 
-The common memory-wall harness now runs Dense, PrimeStabilizer, and the exact R8B Fly-Phi664 virtualized candidate under the same deterministic workload and fresh-process RSS boundary. Fly receipts bind exact MaleCNS/Phi664 source and geometry identity and report logical namespace, materialized addresses/pages, adaptive-page mix, tracked active working set, process RSS, reuse/recompute counters, and exact Dense agreement where the oracle fits. R10 noise and decoder modules are next after R9 merges.
+The project now has a representation-independent QEC crate with deterministic seeded Weyl error traces, canonical error-pattern and syndrome identities, a decoder contract that consumes only typed syndrome data, an exact prime-d repetition-X decoder, and a separately built bounded lookup candidate compared exhaustively on the correctable corpus. No state-representation crate is available to the decoder runtime, so oracle rescue is structurally excluded. R11 native-ququart comparison is next after R10 merges.
