@@ -651,11 +651,7 @@ mod tests {
         let mut command = Command::new("true");
         command.env(FROZEN_FLY_BODY_IDS_ENV, "/tmp/inherited-bodyids.txt");
 
-        configure_frozen_snapshot_environment(
-            &mut command,
-            RepresentationKind::Dense,
-            &fly_args,
-        );
+        configure_frozen_snapshot_environment(&mut command, RepresentationKind::Dense, &fly_args);
 
         let (_, value) = command
             .get_envs()
