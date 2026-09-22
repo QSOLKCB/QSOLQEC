@@ -1743,6 +1743,56 @@ mod tests {
             candidate.cache_hits + candidate.invariant_reuses
         );
         assert!(candidate.peak_tracked_active_bytes >= candidate.worker_scratch_capacity_bytes);
+        assert_eq!(candidate.page_span, spec.fly.page_span);
+        assert_eq!(candidate.tile_span, spec.fly.tile_span);
+        assert_eq!(
+            candidate.sparse_max_occupancy,
+            spec.fly.sparse_max_occupancy
+        );
+        assert_eq!(
+            candidate.bitmap_max_occupancy,
+            spec.fly.bitmap_max_occupancy
+        );
+        assert_eq!(candidate.scratch_domains, spec.fly.scratch_domains);
+        assert_eq!(candidate.owner_count, spec.fly.owner_count);
+        assert_eq!(candidate.max_cached_states, spec.fly.max_cached_states);
+        assert_eq!(
+            candidate.max_in_flight_generations,
+            spec.fly.max_in_flight_generations
+        );
+    }
+
+    #[test]
+    fn fly_failure_receipt_preserves_sparse_payload_bytes() {
+        let mut spec = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 10, 1);
+        spec.fly.tile_span = usize::MAX;
+
+        let receipt = run_experiment(&spec).unwrap();
+
+        assert!(matches!(
+            receipt.body.outcome,
+            RunOutcome::AllocationFailed { .. }
+        ));
+        assert_eq!(receipt.body.memory.logical_bytes, Some(16 * 1024));
+        assert_eq!(receipt.body.memory.materialized_payload_bytes, Some(16));
+        assert_eq!(receipt.body.memory.materialization_count, Some(1));
+    }
+
+    #[test]
+    fn explicit_process_memory_baseline_is_preserved_in_receipt() {
+        let spec = ExperimentSpec::new(RepresentationKind::Dense, 2, 2, 1);
+        let baseline = ProcessMemoryBaseline {
+            rss_bytes: Some(1234),
+            peak_rss_bytes: Some(5678),
+        };
+
+        let receipt = run_experiment_with_baseline(&spec, baseline).unwrap();
+
+        assert_eq!(receipt.body.memory.rss_before_bytes, Some(1234));
+        assert_eq!(
+            receipt.body.memory.peak_process_rss_before_bytes,
+            Some(5678)
+        );
     }
 
     #[test]
