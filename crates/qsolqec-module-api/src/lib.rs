@@ -28,6 +28,7 @@ pub enum DataKind {
     EncodedState,
     StateTransition,
     ProbabilityDistribution,
+    ErrorPattern,
     Syndrome,
     Correction,
     Observation,
