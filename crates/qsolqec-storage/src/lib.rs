@@ -834,9 +834,9 @@ mod tests {
 
     #[test]
     fn ownership_is_deterministic_from_tile_and_owner_count() {
-        let geometry = geometry("1");
-        let policy = TileOwnershipPolicy::new(&geometry, 4, 3).unwrap();
-        let address = PackedAddress::bind(&geometry, 17, 24).unwrap();
+        let geometry_v1 = geometry("1");
+        let policy = TileOwnershipPolicy::new(&geometry_v1, 4, 3).unwrap();
+        let address = PackedAddress::bind(&geometry_v1, 17, 24).unwrap();
         assert_eq!(
             policy.owner_of(&address),
             Ok(TileOwnership {
