@@ -39,6 +39,54 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      - name: Memory-wall provenance guards
+        run: |
+          set -euo pipefail
+
+          # A benchmark build from a dirty tracked source tree must fail closed.
+          printf '\n// provenance-dirty-fixture\n' >> crates/qsolqec-memorywall/src/lib.rs
+          if cargo check -q -p qsolqec-memorywall 2>/tmp/memorywall-dirty.err; then
+            echo "dirty memory-wall build unexpectedly succeeded"
+            exit 1
+          fi
+          grep -q "refusing memory-wall benchmark build from a dirty checkout" /tmp/memorywall-dirty.err
+          git checkout -- crates/qsolqec-memorywall/src/lib.rs
+
+          # Reusing one Cargo target directory across clean commits must refresh
+          # the embedded source revision instead of retaining commit A.
+          rm -rf /tmp/qsolqec-provenance
+          git clone -q --no-hardlinks . /tmp/qsolqec-provenance
+          (
+            cd /tmp/qsolqec-provenance
+            git config user.name "QSOLQEC CI"
+            git config user.email "qsolqec-ci@example.invalid"
+
+            cargo run -q -p qsolqec-memorywall -- run               --representation dense --dimension 2 --subsystems 2 --rounds 1               > /tmp/memorywall-provenance-a.json
+
+            printf '\n<!-- provenance-ref-fixture -->\n' >> README.md
+            git add README.md
+            git commit -q -m "provenance ref fixture"
+            expected_b="$(git rev-parse HEAD)"
+
+            cargo run -q -p qsolqec-memorywall -- run               --representation dense --dimension 2 --subsystems 2 --rounds 1               > /tmp/memorywall-provenance-b.json
+
+            EXPECTED_B="$expected_b" python3 - <<'PY'
+          import json
+          import os
+
+          with open("/tmp/memorywall-provenance-a.json", encoding="utf-8") as handle:
+              a = json.load(handle)["body"]["source_revision"]
+          with open("/tmp/memorywall-provenance-b.json", encoding="utf-8") as handle:
+              b = json.load(handle)["body"]["source_revision"]
+
+          expected = os.environ["EXPECTED_B"]
+          if a == b:
+              raise SystemExit(f"source revision stayed stale across commits: {a}")
+          if b != expected:
+              raise SystemExit(f"source revision mismatch: receipt={b} expected={expected}")
+          PY
+          )
+
       - name: Memory-wall smoke
         run: |
           cargo run -q -p qsolqec-memorywall -- run --representation dense --dimension 2 --subsystems 3 --rounds 2 --max-logical-mib 64 > /tmp/memorywall-dense.json
