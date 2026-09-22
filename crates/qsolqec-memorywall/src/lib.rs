@@ -1706,8 +1706,7 @@ mod tests {
 
     #[test]
     fn invalid_fly_settings_reject_before_logical_budget_short_circuit() {
-        let mut zero_page =
-            ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 1, 1);
+        let mut zero_page = ExperimentSpec::new(RepresentationKind::FlyPhi664Virtualized, 2, 1, 1);
         zero_page.max_logical_bytes = Some(0);
         zero_page.fly.page_span = 0;
         let error = run_experiment(&zero_page).unwrap_err().to_string();
