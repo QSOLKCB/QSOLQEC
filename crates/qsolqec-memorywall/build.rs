@@ -82,7 +82,7 @@ fn verify_public_revision(revision: &str) {
 }
 
 fn reject_dirty_checkout(root: &Path) {
-    let status = git_output(
+    let status = git_output_allow_empty(
         Some(root),
         &["status", "--porcelain=v1", "--untracked-files=all"],
     )
@@ -102,6 +102,11 @@ fn reject_dirty_checkout(root: &Path) {
 }
 
 fn git_output(root: Option<&Path>, args: &[&str]) -> Option<String> {
+    let value = git_output_allow_empty(root, args)?;
+    (!value.is_empty()).then_some(value)
+}
+
+fn git_output_allow_empty(root: Option<&Path>, args: &[&str]) -> Option<String> {
     let mut command = Command::new("git");
     if let Some(root) = root {
         command.arg("-C").arg(root);
@@ -113,8 +118,7 @@ fn git_output(root: Option<&Path>, args: &[&str]) -> Option<String> {
     }
 
     let value = String::from_utf8(output.stdout).ok()?;
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_owned())
+    Some(value.trim().to_owned())
 }
 
 fn is_full_sha(value: &str) -> bool {
