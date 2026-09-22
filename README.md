@@ -182,7 +182,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 6. **R5 - Representation benchmark and memory-accounting harness** - implemented in PR #7.
 7. **R6 - Structured logical-memory substrate contract** - implemented in PR #8.
 8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
-9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - Gate A implemented in the current follow-on PR; Gate B next.
+9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - Gate A implemented in the PR #10; Gate B next.
 10. **R9 - Amplitude-memory-wall challenge**.
 11. **R10 - Noise and decoder modules**.
 12. **R11 - Flagship native-ququart experiment**.
@@ -196,6 +196,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R8 Gate A: explicit Q(d,n) binding baseline (current follow-on PR).**
+**R8 Gate A: explicit Q(d,n) binding baseline (PR #10).**
 
 The project now has a Q(d,n)-bound Fly-Phi664 adapter with exact amplitude encoding, deterministic basis-index mapping, explicit reconstruction, Glass Box state observation, exact/unsupported operation classification, and Dense oracle comparison on tractable fixtures. The neutral R7 store remains separate. R8 Gate B - GALAXY/OPT virtualized materialization - is the next roadmap phase.
