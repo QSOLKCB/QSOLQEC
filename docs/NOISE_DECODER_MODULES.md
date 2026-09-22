@@ -219,6 +219,20 @@ A `Correction` binds:
 - X-shift correction vector;
 - deterministic correction digest.
 
+Independent downstream decoder crates construct corrections through the public
+`Correction::for_decoder` path. That constructor validates:
+
+- the supplied module descriptor itself;
+- declaration of `Capability::Decoder`;
+- `Syndrome` input and `Correction` output routing;
+- syndrome/code identity;
+- correction-vector length;
+- every correction exponent against local dimension.
+
+The correction is then cryptographically bound to the supplied decoder
+descriptor ID/version and syndrome digest. Downstream implementations do not
+need private field access or changes to `qsolqec-qec`.
+
 It can be converted to the common R2 `WeylX` operation stream.
 
 `cancels_x_error` validates the supplied error vector before testing exact
@@ -262,6 +276,19 @@ The comparison records:
 - deterministic comparison digest.
 
 Comparison is observational.
+
+Before any successful correction can count as a match, the comparison validates
+that it is bound to:
+
+- the expected repetition-code contract;
+- the exact current syndrome digest;
+- the descriptor ID of the decoder that returned it;
+- that decoder descriptor's version.
+
+A candidate that simply delegates to the reference decoder and returns the
+reference decoder's correction therefore records candidate failures rather than
+matches, because its returned provenance does not match the candidate
+descriptor.
 
 It does not replace a candidate result with the reference result and therefore
 does not provide oracle rescue.
