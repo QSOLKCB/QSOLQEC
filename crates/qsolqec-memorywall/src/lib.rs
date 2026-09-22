@@ -303,19 +303,65 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
     let system = spec.system()?;
     let operations = workload_operations(system, spec.rounds)?;
     let workload = workload_identity(system, spec.rounds, &operations);
+    let operation_support = workload_support_class(spec.representation, system, &operations)?;
     let experiment_id = experiment_id(spec, &workload);
     let host = probe_host();
     let revision = source_revision();
+    let revision_url = source_revision_url();
 
     let estimated_logical_bytes = estimate_logical_bytes(spec.representation, system);
     let rss_before_bytes = linux_current_rss_bytes();
     let peak_before_bytes = linux_peak_rss_bytes();
+
+    if operation_support == OperationSupportClass::Unsupported {
+        return finalize_receipt(ReceiptBody {
+            experiment_id,
+            source_revision: revision,
+            source_revision_url: revision_url,
+            representation: spec.representation,
+            representation_id: spec.representation.id().into(),
+            compute_backend: "scalar-cpu".into(),
+            worker_count: 1,
+            dimension: spec.dimension,
+            subsystems: spec.subsystems,
+            rounds: spec.rounds,
+            workload,
+            operation_support,
+            host,
+            memory: MemoryMeasurements {
+                estimated_logical_bytes,
+                logical_bytes: None,
+                materialized_payload_bytes: None,
+                resident_working_set_bytes: None,
+                rss_before_bytes,
+                rss_after_bytes: linux_current_rss_bytes(),
+                peak_process_rss_before_bytes: peak_before_bytes,
+                peak_process_rss_bytes: linux_peak_rss_bytes(),
+                incremental_peak_rss_bytes: None,
+                allocation_count: None,
+                materialization_count: Some(0),
+            },
+            timings: empty_timings(),
+            final_state_digest: None,
+            norm_squared: None,
+            oracle_agreement: OracleAgreement::NotApplicable,
+            outcome: RunOutcome::Unsupported {
+                reason: format!(
+                    "{} does not support the declared workload for Q({},{})",
+                    spec.representation.id(),
+                    spec.dimension,
+                    spec.subsystems
+                ),
+            },
+        });
+    }
 
     if let (Some(required), Some(limit)) = (estimated_logical_bytes, spec.max_logical_bytes) {
         if required > limit {
             return finalize_receipt(ReceiptBody {
                 experiment_id,
                 source_revision: revision,
+                source_revision_url: revision_url,
                 representation: spec.representation,
                 representation_id: spec.representation.id().into(),
                 compute_backend: "scalar-cpu".into(),
@@ -324,6 +370,7 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
                 subsystems: spec.subsystems,
                 rounds: spec.rounds,
                 workload,
+                operation_support,
                 host,
                 memory: MemoryMeasurements {
                     estimated_logical_bytes: Some(required),
@@ -356,9 +403,11 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             system,
             operations,
             workload,
+            operation_support,
             experiment_id,
             host,
             revision,
+            revision_url,
             estimated_logical_bytes,
             rss_before_bytes,
             peak_before_bytes,
@@ -368,14 +417,52 @@ pub fn run_experiment(spec: &ExperimentSpec) -> Result<MemoryWallReceipt, Harnes
             system,
             operations,
             workload,
+            operation_support,
             experiment_id,
             host,
             revision,
+            revision_url,
             estimated_logical_bytes,
             rss_before_bytes,
             peak_before_bytes,
         ),
     }
+}
+
+fn workload_support_class(
+    representation: RepresentationKind,
+    system: SystemSpec,
+    operations: &[Operation],
+) -> Result<OperationSupportClass, HarnessError> {
+    let mut aggregate = OperationSupportClass::Exact;
+
+    for operation in operations {
+        let support = match representation {
+            RepresentationKind::Dense => DenseState::support_for_spec(system, operation)
+                .map_err(|error| HarnessError::Workload(error.to_string()))?,
+            RepresentationKind::PrimeStabilizer => {
+                match PrimeStabilizerState::support_for_spec(system, operation) {
+                    Ok(support) => support,
+                    Err(StabilizerError::NonPrimeDimension { .. }) => {
+                        return Ok(OperationSupportClass::Unsupported);
+                    }
+                    Err(error) => return Err(HarnessError::Workload(error.to_string())),
+                }
+            }
+        };
+
+        match OperationSupportClass::from(support) {
+            OperationSupportClass::Unsupported => {
+                return Ok(OperationSupportClass::Unsupported);
+            }
+            OperationSupportClass::Approximate => {
+                aggregate = OperationSupportClass::Approximate;
+            }
+            OperationSupportClass::Exact => {}
+        }
+    }
+
+    Ok(aggregate)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -384,9 +471,11 @@ fn run_dense(
     system: SystemSpec,
     operations: Vec<Operation>,
     workload: WorkloadIdentity,
+    operation_support: OperationSupportClass,
     experiment_id: String,
     host: HostInfo,
     revision: String,
+    revision_url: String,
     estimated_logical_bytes: Option<u64>,
     rss_before_bytes: Option<u64>,
     peak_before_bytes: Option<u64>,
@@ -409,31 +498,41 @@ fn run_dense(
             return failed_receipt(
                 spec,
                 workload,
+                operation_support,
                 experiment_id,
                 host,
                 revision,
+                revision_url,
                 estimated_logical_bytes,
                 rss_before_bytes,
                 peak_before_bytes,
-                duration_ns(construction_start.elapsed()),
+                FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
                 outcome,
             );
         }
     };
     let construction_ns = duration_ns(construction_start.elapsed());
+    let materialized_logical_bytes = dense_logical_bytes(&state);
 
     let execution_start = Instant::now();
     if let Err(error) = state.apply_operations(&operations) {
+        let execution_ns = duration_ns(execution_start.elapsed());
         return failed_receipt(
             spec,
             workload,
+            operation_support,
             experiment_id,
             host,
             revision,
+            revision_url,
             estimated_logical_bytes,
             rss_before_bytes,
             peak_before_bytes,
-            construction_ns,
+            FailureEvidence::materialized(
+                construction_ns,
+                Some(execution_ns),
+                materialized_logical_bytes,
+            ),
             RunOutcome::ExecutionFailed {
                 reason: error.to_string(),
             },
@@ -451,6 +550,7 @@ fn run_dense(
     finalize_receipt(ReceiptBody {
         experiment_id,
         source_revision: revision,
+        source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
         compute_backend: "scalar-cpu".into(),
@@ -459,6 +559,7 @@ fn run_dense(
         subsystems: spec.subsystems,
         rounds: spec.rounds,
         workload,
+        operation_support,
         host,
         memory: MemoryMeasurements {
             estimated_logical_bytes,
@@ -492,9 +593,11 @@ fn run_stabilizer(
     system: SystemSpec,
     operations: Vec<Operation>,
     workload: WorkloadIdentity,
+    operation_support: OperationSupportClass,
     experiment_id: String,
     host: HostInfo,
     revision: String,
+    revision_url: String,
     estimated_logical_bytes: Option<u64>,
     rss_before_bytes: Option<u64>,
     peak_before_bytes: Option<u64>,
@@ -506,70 +609,41 @@ fn run_stabilizer(
             return failed_receipt(
                 spec,
                 workload,
+                operation_support,
                 experiment_id,
                 host,
                 revision,
+                revision_url,
                 estimated_logical_bytes,
                 rss_before_bytes,
                 peak_before_bytes,
-                duration_ns(construction_start.elapsed()),
+                FailureEvidence::preconstruction(duration_ns(construction_start.elapsed())),
                 classify_stabilizer_error(error),
             );
         }
     };
     let construction_ns = duration_ns(construction_start.elapsed());
-
-    for operation in &operations {
-        match state.support_for(operation) {
-            Ok(OperationSupport::Exact) => {}
-            Ok(other) => {
-                return failed_receipt(
-                    spec,
-                    workload,
-                    experiment_id,
-                    host,
-                    revision,
-                    estimated_logical_bytes,
-                    rss_before_bytes,
-                    peak_before_bytes,
-                    construction_ns,
-                    RunOutcome::Unsupported {
-                        reason: format!(
-                            "operation {} has support class {other:?}",
-                            operation.kind()
-                        ),
-                    },
-                );
-            }
-            Err(error) => {
-                return failed_receipt(
-                    spec,
-                    workload,
-                    experiment_id,
-                    host,
-                    revision,
-                    estimated_logical_bytes,
-                    rss_before_bytes,
-                    peak_before_bytes,
-                    construction_ns,
-                    classify_stabilizer_error(error),
-                );
-            }
-        }
-    }
+    let materialized_logical_bytes = u64::try_from(state.logical_bytes()).ok();
 
     let execution_start = Instant::now();
     if let Err(error) = state.apply_operations(&operations) {
+        let execution_ns = duration_ns(execution_start.elapsed());
         return failed_receipt(
             spec,
             workload,
+            operation_support,
             experiment_id,
             host,
             revision,
+            revision_url,
             estimated_logical_bytes,
             rss_before_bytes,
             peak_before_bytes,
-            construction_ns,
+            FailureEvidence::materialized(
+                construction_ns,
+                Some(execution_ns),
+                materialized_logical_bytes,
+            ),
             classify_stabilizer_error(error),
         );
     }
@@ -626,6 +700,7 @@ fn run_stabilizer(
     finalize_receipt(ReceiptBody {
         experiment_id,
         source_revision: revision,
+        source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
         compute_backend: "scalar-cpu".into(),
@@ -634,6 +709,7 @@ fn run_stabilizer(
         subsystems: spec.subsystems,
         rounds: spec.rounds,
         workload,
+        operation_support,
         host,
         memory: MemoryMeasurements {
             estimated_logical_bytes,
@@ -661,23 +737,61 @@ fn run_stabilizer(
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct FailureEvidence {
+    logical_bytes: Option<u64>,
+    materialized_payload_bytes: Option<u64>,
+    materialization_count: u64,
+    construction_ns: u64,
+    execution_ns: Option<u64>,
+}
+
+impl FailureEvidence {
+    const fn preconstruction(construction_ns: u64) -> Self {
+        Self {
+            logical_bytes: None,
+            materialized_payload_bytes: None,
+            materialization_count: 0,
+            construction_ns,
+            execution_ns: None,
+        }
+    }
+
+    const fn materialized(
+        construction_ns: u64,
+        execution_ns: Option<u64>,
+        logical_bytes: Option<u64>,
+    ) -> Self {
+        Self {
+            logical_bytes,
+            materialized_payload_bytes: logical_bytes,
+            materialization_count: 1,
+            construction_ns,
+            execution_ns,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn failed_receipt(
     spec: &ExperimentSpec,
     workload: WorkloadIdentity,
+    operation_support: OperationSupportClass,
     experiment_id: String,
     host: HostInfo,
     revision: String,
+    revision_url: String,
     estimated_logical_bytes: Option<u64>,
     rss_before_bytes: Option<u64>,
     peak_before_bytes: Option<u64>,
-    construction_ns: u64,
+    evidence: FailureEvidence,
     outcome: RunOutcome,
 ) -> Result<MemoryWallReceipt, HarnessError> {
     let peak_after = linux_peak_rss_bytes();
     finalize_receipt(ReceiptBody {
         experiment_id,
         source_revision: revision,
+        source_revision_url: revision_url,
         representation: spec.representation,
         representation_id: spec.representation.id().into(),
         compute_backend: "scalar-cpu".into(),
@@ -686,11 +800,12 @@ fn failed_receipt(
         subsystems: spec.subsystems,
         rounds: spec.rounds,
         workload,
+        operation_support,
         host,
         memory: MemoryMeasurements {
             estimated_logical_bytes,
-            logical_bytes: None,
-            materialized_payload_bytes: None,
+            logical_bytes: evidence.logical_bytes,
+            materialized_payload_bytes: evidence.materialized_payload_bytes,
             resident_working_set_bytes: None,
             rss_before_bytes,
             rss_after_bytes: linux_current_rss_bytes(),
@@ -698,11 +813,11 @@ fn failed_receipt(
             peak_process_rss_bytes: peak_after,
             incremental_peak_rss_bytes: peak_delta(peak_before_bytes, peak_after),
             allocation_count: None,
-            materialization_count: Some(0),
+            materialization_count: Some(evidence.materialization_count),
         },
         timings: TimingMeasurements {
-            construction_ns: Some(construction_ns),
-            execution_ns: None,
+            construction_ns: Some(evidence.construction_ns),
+            execution_ns: evidence.execution_ns,
             snapshot_ns: None,
             oracle_verification_ns: None,
         },
@@ -711,6 +826,11 @@ fn failed_receipt(
         oracle_agreement: OracleAgreement::NotApplicable,
         outcome,
     })
+}
+
+fn dense_logical_bytes(state: &DenseState) -> Option<u64> {
+    let amplitudes = u64::try_from(state.amplitudes().len()).ok()?;
+    amplitudes.checked_mul(std::mem::size_of::<Complex64>() as u64)
 }
 
 fn finalize_receipt(body: ReceiptBody) -> Result<MemoryWallReceipt, HarnessError> {
