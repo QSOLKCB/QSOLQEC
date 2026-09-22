@@ -13,7 +13,7 @@ use std::time::Instant;
 use num_complex::Complex64;
 use qsolqec_core::SystemSpec;
 use qsolqec_dense::{DenseState, DenseStateError};
-use qsolqec_fly_phi664::{MacroSourceSpec, Phi664Codec};
+use qsolqec_fly_phi664::{canonical_body_ids_digest, MacroSourceSpec, Phi664Codec};
 use qsolqec_fly_qdn::virtualized::{
     VirtualExecutor, VirtualFlyQdnState, VirtualizationConfig, VirtualizationError,
     VIRTUALIZED_REPRESENTATION_ID,
@@ -101,6 +101,25 @@ impl Default for FlyExperimentConfig {
 }
 
 impl FlyExperimentConfig {
+    fn canonical_body_ids_digest(&self) -> Result<String, HarnessError> {
+        canonical_body_ids_digest(self.body_ids.clone())
+            .map_err(|error| HarnessError::InvalidSpec(error.to_string()))
+    }
+
+    fn validate_body_id_source(&self, body_ids_digest: &str) -> Result<(), HarnessError> {
+        if self.body_id_source == FlyBodyIdSource::BuiltinR7Fixture {
+            let builtin_digest = canonical_body_ids_digest(BUILTIN_FLY_BODY_IDS.to_vec())
+                .map_err(|error| HarnessError::InvalidSpec(error.to_string()))?;
+            if body_ids_digest != builtin_digest {
+                return Err(HarnessError::InvalidSpec(
+                    "body_id_source=builtin-r7-fixture requires exactly the built-in R7 body-ID membership"
+                        .into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn virtualization_config(&self) -> Result<VirtualizationConfig, HarnessError> {
         VirtualizationConfig::new(
             self.page_span,
@@ -435,7 +454,7 @@ pub fn run_experiment_with_baseline(
     let operations = workload_operations(system, spec.rounds)?;
     let workload = workload_identity(system, spec.rounds, &operations);
     let operation_support = workload_support_class(spec.representation, system, &operations)?;
-    let experiment_id = experiment_id(spec, &workload);
+    let experiment_id = experiment_id(spec, &workload)?;
     let host = probe_host();
     let revision = source_revision();
     let revision_url = source_revision_url();
@@ -1431,7 +1450,10 @@ fn compute_backend(representation: RepresentationKind) -> &'static str {
     }
 }
 
-fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
+fn experiment_id(
+    spec: &ExperimentSpec,
+    workload: &WorkloadIdentity,
+) -> Result<String, HarnessError> {
     let mut hasher = SemanticHasher::new();
     hash_bytes(&mut hasher, b"qsolqec.memorywall.experiment.v1");
     hash_bytes(&mut hasher, spec.representation.id().as_bytes());
@@ -1451,12 +1473,9 @@ fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
 
     if spec.representation == RepresentationKind::FlyPhi664Virtualized {
         hash_bytes(&mut hasher, b"male-cns:v1.0");
-        let mut body_ids = spec.fly.body_ids.clone();
-        body_ids.sort_unstable();
-        hasher.update(&(body_ids.len() as u128).to_be_bytes());
-        for body_id in body_ids {
-            hasher.update(&body_id.to_be_bytes());
-        }
+        let body_ids_digest = spec.fly.canonical_body_ids_digest()?;
+        spec.fly.validate_body_id_source(&body_ids_digest)?;
+        hash_bytes(&mut hasher, body_ids_digest.as_bytes());
         for value in [
             spec.fly.page_span as u128,
             spec.fly.tile_span as u128,
@@ -1471,7 +1490,7 @@ fn experiment_id(spec: &ExperimentSpec, workload: &WorkloadIdentity) -> String {
         }
     }
 
-    format!("sha256:{}", hasher.finalize_hex())
+    Ok(format!("sha256:{}", hasher.finalize_hex()))
 }
 
 fn hash_bytes(hasher: &mut SemanticHasher, bytes: &[u8]) {
