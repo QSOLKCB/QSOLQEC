@@ -191,7 +191,7 @@ The numbered roadmap is defined canonically in [ROADMAP.md](ROADMAP.md). The cur
 8. **R7 - Fly-Phi664 structured memory prototype** - implemented in PR #9.
 9. **R8 - Q(d,n) binding plus GALAXY/OPT virtualized materialization** - complete in PRs #10-#11.
 10. **R9 - Amplitude-memory-wall challenge** - complete in PR #12.
-11. **R10 - Noise and decoder modules** - implemented in PR #13 (pending merge).
+11. **R10 - Noise and decoder modules** - complete in PR #13.
 12. **R11 - Flagship native-ququart experiment**.
 13. **R12 - Sonification observer**.
 14. **R13 - Compute acceleration**.
