@@ -203,6 +203,6 @@ If this summary and ROADMAP.md ever differ, **ROADMAP.md is the numbered source 
 
 ## Current status
 
-**R10: replayable noise and decoder modules (PR #13, pending merge).**
+**R10: replayable noise and decoder modules (PR #13, complete).**
 
 The project now has a representation-independent QEC crate with deterministic seeded Weyl error traces, canonical error-pattern and syndrome identities, a decoder contract that consumes only typed syndrome data, an exact prime-d repetition-X decoder, and a separately built bounded lookup candidate compared exhaustively on the correctable corpus. No state-representation crate is available to the decoder runtime, so oracle rescue is structurally excluded. R11 native-ququart comparison is next after R10 merges.
